@@ -69,3 +69,4 @@ python manage.py runserver
 - ข้อมูลถูกเก็บใน **Django session** (cookie-based) → รีเฟรชหน้าข้อมูลยังคงอยู่
 - Session หมดอายุหลัง 24 ชั่วโมง หรือกด "ออกจากระบบ"
 - ใช้ Tailwind CSS CDN + Lucide Icons CDN (ไม่ต้องติดตั้งเพิ่ม)
+"# Final-project" 
