@@ -1,0 +1,10 @@
+name: recycleadmin
+channels:
+  - defaults
+  - conda-forge
+dependencies:
+  - python=3.11
+  - pip
+  - pip:
+      - django==4.2
+      - whitenoise==6.6

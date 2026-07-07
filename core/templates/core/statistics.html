@@ -1,0 +1,33 @@
+﻿{% extends "core/base.html" %}
+{% load core_extras %}
+{% block content %}
+<div class="p-6">
+  <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
+    <div><h1 class="text-2xl font-bold text-gray-800">Reports</h1>{% if current_org %}<p class="text-gray-500">Organization report for {{ current_org.name }}</p>{% else %}<p class="text-gray-500">System-wide report, filterable by organization.</p>{% endif %}</div>
+    <div class="flex gap-2 no-print"><a href="/statistics/export/?start={{ start_date }}&end={{ end_date }}&search={{ search }}&organization={{ organization_filter }}" class="flex items-center gap-2 px-3 py-2 bg-green-50 text-green-700 rounded-lg hover:bg-green-100 text-sm font-medium border border-green-100"><i data-lucide="download" class="w-4 h-4"></i>Export CSV</a><button onclick="window.print()" class="flex items-center gap-2 px-3 py-2 bg-red-50 text-red-700 rounded-lg hover:bg-red-100 text-sm font-medium border border-red-100"><i data-lucide="printer" class="w-4 h-4"></i>Print</button></div>
+  </div>
+
+  <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+    <div class="bg-white p-5 rounded-xl border border-gray-100 shadow-sm"><p class="text-gray-500 text-sm">Rows</p><div class="text-3xl font-bold">{{ history|length }}</div></div>
+    <div class="bg-white p-5 rounded-xl border border-gray-100 shadow-sm"><p class="text-gray-500 text-sm">Total weight</p><div class="text-3xl font-bold">{{ total_weight }} <span class="text-sm text-gray-400">kg</span></div></div>
+    <div class="bg-white p-5 rounded-xl border border-gray-100 shadow-sm"><p class="text-gray-500 text-sm">Scope</p><div class="text-xl font-bold">{% if current_org %}{{ current_org.name }}{% else %}All organizations{% endif %}</div></div>
+  </div>
+
+  <div class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+    <div class="p-6 border-b border-gray-100 no-print">
+      <form method="get" class="flex flex-wrap gap-3 bg-gray-50 p-3 rounded-lg border border-gray-200">
+        <div class="flex items-center gap-2 bg-white px-3 py-2 rounded border border-gray-200"><span class="text-xs text-gray-400 font-bold uppercase">From</span><input type="date" name="start" value="{{ start_date }}" class="text-sm outline-none text-gray-600"/></div>
+        <div class="flex items-center gap-2 bg-white px-3 py-2 rounded border border-gray-200"><span class="text-xs text-gray-400 font-bold uppercase">To</span><input type="date" name="end" value="{{ end_date }}" class="text-sm outline-none text-gray-600"/></div>
+        {% if is_system_admin %}<select name="organization" onchange="this.form.submit()" class="px-4 py-2 border border-gray-200 rounded bg-white text-sm"><option value="All">All organizations</option>{% for org in organizations %}<option value="{{ org.id }}" {% if organization_filter == org.id %}selected{% endif %}>{{ org.name }}</option>{% endfor %}</select>{% endif %}
+        <div class="flex-1 min-w-[200px] flex items-center gap-2 bg-white px-3 py-2 rounded border border-gray-200"><i data-lucide="search" class="w-4 h-4 text-gray-400"></i><input type="text" name="search" value="{{ search }}" placeholder="Search staff, machine, or type" class="w-full text-sm outline-none"/></div>
+        <button type="submit" class="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700">Filter</button><a href="/statistics/" class="px-4 py-2 bg-gray-100 text-gray-600 rounded-lg text-sm font-medium hover:bg-gray-200">Clear</a>
+      </form>
+    </div>
+    <div class="overflow-x-auto"><table class="w-full text-left border-collapse"><thead><tr class="bg-gray-50 text-gray-600 text-sm border-b border-gray-100"><th class="p-4 font-medium">Date</th><th class="p-4 font-medium">Time</th>{% if is_system_admin %}<th class="p-4 font-medium">Organization</th>{% endif %}<th class="p-4 font-medium">Machine</th><th class="p-4 font-medium">Type</th><th class="p-4 font-medium text-right">Weight (kg)</th><th class="p-4 font-medium">Staff</th></tr></thead><tbody class="divide-y divide-gray-100">
+      {% for row in history %}<tr class="hover:bg-blue-50/50 transition-colors text-sm text-gray-700"><td class="p-4">{{ row.date|ddmmyy }}</td><td class="p-4 text-gray-500">{{ row.time }}</td>{% if is_system_admin %}<td class="p-4">{{ row.organization_name }}</td>{% endif %}<td class="p-4 font-medium">{{ row.machine }}</td><td class="p-4">{{ row.type }}</td><td class="p-4 text-right font-mono">{{ row.weight }}</td><td class="p-4">{{ row.staff }}</td></tr>{% empty %}<tr><td colspan="7" class="p-8 text-center text-gray-400">No report rows found.</td></tr>{% endfor %}
+    </tbody></table></div>
+  </div>
+</div>
+<script>lucide.createIcons();</script>
+{% endblock %}
+

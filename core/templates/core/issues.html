@@ -1,0 +1,147 @@
+{% extends "core/base.html" %}
+{% load core_extras %}
+{% block content %}
+<div class="p-6">
+  <div class="flex justify-between items-center mb-4">
+    <h1 class="text-2xl font-bold text-gray-800">แจ้งปัญหาและซ่อมบำรุง</h1>
+    <button onclick="document.getElementById('topic-modal').classList.remove('hidden')"
+            class="flex items-center gap-2 px-4 py-2 bg-white border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition shadow-sm font-medium">
+      <i data-lucide="list" class="w-4 h-4"></i> จัดการหัวข้อปัญหา
+    </button>
+  </div>
+  <p class="text-gray-500 text-sm mb-4">*แสดงเฉพาะรายงานจาก Collector (เจ้าหน้าที่เก็บขยะ) เท่านั้น</p>
+
+  <!-- Tabs -->
+  <div class="flex gap-4 border-b border-gray-200 mb-6">
+    {% for tab_id, tab_label in tabs %}
+    <a href="?tab={{ tab_id }}"
+       class="pb-3 px-2 text-sm font-medium transition-colors relative {% if active_tab == tab_id %}text-blue-600{% else %}text-gray-500 hover:text-gray-700{% endif %}">
+      {{ tab_label }}
+      <span class="ml-2 bg-gray-100 text-gray-600 px-2 py-0.5 rounded-full text-xs">{{ counts|get_item:tab_id|default:0 }}</span>
+      {% if active_tab == tab_id %}<div class="absolute bottom-0 left-0 w-full h-0.5 bg-blue-600"></div>{% endif %}
+    </a>
+    {% endfor %}
+  </div>
+
+  <div class="flex flex-col md:flex-row gap-6">
+    <!-- Issue List -->
+    <div class="flex-1 space-y-3" id="issue-list">
+      {% for issue in issues %}
+      <div onclick="selectIssue({{ issue.id }},'{{ issue.title|escapejs }}','{{ issue.description|escapejs }}','{{ issue.reporter|escapejs }}','{{ issue.location|escapejs }}','{{ issue.reportDate|ddmmyy }}','{{ issue.status }}')"
+           class="issue-card p-4 rounded-xl border bg-white cursor-pointer transition-all hover:shadow-md border-gray-200"
+           id="card-{{ issue.id }}">
+        <div class="flex justify-between items-start mb-2">
+          <h3 class="font-bold text-gray-800">{{ issue.title }}</h3>
+          <span class="text-xs text-gray-400">{{ issue.time }}</span>
+        </div>
+        <p class="text-sm text-gray-500 line-clamp-2">{{ issue.description }}</p>
+        <div class="flex items-center gap-2 mt-3 text-xs text-gray-400">
+          <span class="bg-blue-50 text-blue-600 px-2 py-1 rounded font-medium">{{ issue.reporter|truncatewords:1 }}</span>
+          <span>•</span><span>{{ issue.location }}</span>
+        </div>
+      </div>
+      {% empty %}
+      <div class="text-center py-10 text-gray-400 bg-white rounded-xl border border-dashed border-gray-200">ไม่มีรายการในสถานะนี้</div>
+      {% endfor %}
+    </div>
+
+    <!-- Detail Panel -->
+    <div class="w-full md:w-1/3">
+      <div id="detail-empty" class="bg-gray-50 rounded-xl border border-dashed border-gray-200 h-64 flex flex-col items-center justify-center text-gray-400">
+        <i data-lucide="message-square-warning" class="w-10 h-10 mb-2 opacity-50"></i>
+        <p>เลือกรายการเพื่อดูรายละเอียด</p>
+      </div>
+      <div id="detail-panel" class="hidden bg-white rounded-xl border border-gray-200 shadow-sm p-6 sticky top-6 animate-fadein">
+        <div class="flex justify-between items-start mb-6">
+          <h2 class="text-xl font-bold text-gray-800">รายละเอียด</h2>
+          <button onclick="clearDetail()" class="text-gray-400 hover:text-gray-600"><i data-lucide="x" class="w-5 h-5"></i></button>
+        </div>
+        <div class="space-y-4 mb-8">
+          <div><label class="text-xs text-gray-400 uppercase font-semibold">หัวข้อปัญหา</label><p id="d-title" class="text-gray-800 font-medium"></p></div>
+          <div><label class="text-xs text-gray-400 uppercase font-semibold">รายละเอียด</label><p id="d-desc" class="text-gray-600 text-sm"></p></div>
+          <div><label class="text-xs text-gray-400 uppercase font-semibold">ผู้แจ้ง (Collector)</label><p id="d-reporter" class="text-blue-600 bg-blue-50 px-2 py-1 rounded inline-block text-sm font-medium"></p></div>
+          <div><label class="text-xs text-gray-400 uppercase font-semibold">สถานที่ / วันที่</label><p id="d-loc" class="text-gray-800 text-sm"></p></div>
+        </div>
+        <form id="form-next-status" method="post" action="/issues/next-status/">
+          {% csrf_token %}
+          <input type="hidden" name="id" id="next-issue-id"/>
+          <input type="hidden" name="tab" value="{{ active_tab }}"/>
+          <button type="button" id="btn-next" onclick="showConfirm('ยืนยันสถานะ','คุณต้องการดำเนินการนี้ใช่หรือไม่?','form-next-status')"
+                  class="w-full py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 font-medium flex items-center justify-center gap-2">
+            รับเรื่อง / ดำเนินการ
+          </button>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Topic Management Modal -->
+<div id="topic-modal" class="hidden fixed inset-0 z-[60] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+  <div class="bg-white rounded-xl shadow-xl w-full max-w-md overflow-hidden animate-fadein">
+    <div class="p-4 border-b border-gray-100 flex justify-between items-center bg-gray-50">
+      <h3 class="font-bold text-gray-800">จัดการหัวข้อปัญหา</h3>
+      <button onclick="document.getElementById('topic-modal').classList.add('hidden')">
+        <i data-lucide="x" class="w-5 h-5 text-gray-400 hover:text-gray-600"></i>
+      </button>
+    </div>
+    <div class="p-4 bg-gray-50 border-b border-gray-100">
+      <form method="post" action="/issues/topic/add/" class="flex gap-2">
+        {% csrf_token %}<input type="hidden" name="tab" value="{{ active_tab }}"/>
+        <input type="text" name="topic" placeholder="เพิ่มหัวข้อใหม่..." required
+               class="flex-1 p-2 border rounded-lg text-sm outline-none focus:ring-2 focus:ring-blue-200"/>
+        <button type="submit" class="bg-blue-600 text-white px-3 rounded-lg text-sm font-medium hover:bg-blue-700">เพิ่ม</button>
+      </form>
+    </div>
+    <div class="p-2 max-h-[300px] overflow-y-auto">
+      {% for topic in topics %}
+      <div class="flex justify-between items-center p-3 hover:bg-gray-50 rounded-lg group">
+        <span class="text-sm text-gray-700">{{ topic }}</span>
+        <form method="post" action="/issues/topic/delete/">
+          {% csrf_token %}<input type="hidden" name="topic" value="{{ topic }}"/><input type="hidden" name="tab" value="{{ active_tab }}"/>
+          <button type="submit" class="text-gray-300 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity">
+            <i data-lucide="trash-2" class="w-4 h-4"></i>
+          </button>
+        </form>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+</div>
+
+{% if request.GET.topics %}<script>document.addEventListener('DOMContentLoaded',()=>document.getElementById('topic-modal').classList.remove('hidden'));</script>{% endif %}
+
+<script>
+lucide.createIcons();
+let selectedId = null;
+
+function selectIssue(id, title, desc, reporter, location, date, status) {
+  selectedId = id;
+  document.querySelectorAll('.issue-card').forEach(c => c.classList.remove('border-blue-500','ring-1','ring-blue-500'));
+  document.getElementById('card-'+id)?.classList.add('border-blue-500','ring-1','ring-blue-500');
+  document.getElementById('d-title').textContent    = title;
+  document.getElementById('d-desc').textContent     = desc;
+  document.getElementById('d-reporter').textContent = reporter;
+  document.getElementById('d-loc').textContent      = location + ' (' + date + ')';
+  document.getElementById('next-issue-id').value = id;
+
+  const btn = document.getElementById('btn-next');
+  if (status === 'Completed') {
+    btn.closest('form').classList.add('hidden');
+  } else {
+    btn.closest('form').classList.remove('hidden');
+    btn.textContent = status === 'Waiting' ? 'รับเรื่อง / ดำเนินการ' : 'ปิดงาน (เสร็จสิ้น)';
+  }
+  document.getElementById('detail-empty').classList.add('hidden');
+  document.getElementById('detail-panel').classList.remove('hidden');
+  lucide.createIcons();
+}
+
+function clearDetail() {
+  selectedId = null;
+  document.getElementById('detail-empty').classList.remove('hidden');
+  document.getElementById('detail-panel').classList.add('hidden');
+  document.querySelectorAll('.issue-card').forEach(c => c.classList.remove('border-blue-500','ring-1','ring-blue-500'));
+}
+</script>
+{% endblock %}

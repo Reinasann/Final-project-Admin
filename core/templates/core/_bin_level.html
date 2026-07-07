@@ -1,0 +1,9 @@
+<div class="mb-2">
+  <div class="flex justify-between text-xs mb-1">
+    <span class="text-gray-600 font-medium">{{ label }}</span>
+    <span class="font-bold {% if level >= 90 %}text-red-500{% else %}text-gray-700{% endif %}">{{ level }}%</span>
+  </div>
+  <div class="w-full bg-gray-100 rounded-full h-2">
+    <div class="h-2 rounded-full {{ color }}" style="width:{{ level }}%"></div>
+  </div>
+</div>

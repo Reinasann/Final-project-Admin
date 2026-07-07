@@ -1,0 +1,48 @@
+﻿<!DOCTYPE html>
+<html lang="th">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>RecycleAdmin - Login</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
+<style>@import url('https://fonts.googleapis.com/css2?family=Sarabun:wght@400;500;600;700&display=swap');body{font-family:'Sarabun',sans-serif}</style>
+</head>
+<body class="min-h-screen bg-gray-100 flex items-center justify-center p-4">
+<div class="bg-white p-8 rounded-2xl shadow-lg w-full max-w-md border border-gray-200">
+  <div class="text-center mb-8">
+    <div class="w-16 h-16 bg-blue-600 rounded-2xl flex items-center justify-center text-white font-bold text-3xl mx-auto mb-4">R</div>
+    <h1 class="text-2xl font-bold text-gray-800">Recycle Admin</h1>
+    <p class="text-gray-500">Sign in as System admin or organization admin</p>
+  </div>
+  {% if error %}<div class="mb-4 p-3 bg-red-50 border border-red-200 text-red-700 rounded-lg text-sm">{{ error }}</div>{% endif %}
+  <form method="post" class="space-y-5">
+    {% csrf_token %}
+    <div>
+      <label class="block text-sm font-medium text-gray-700 mb-2">Email</label>
+      <div class="relative"><i data-lucide="mail" class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-5 h-5"></i><input type="email" name="email" required placeholder="admin@example.com" class="w-full pl-10 pr-4 py-3 rounded-xl border border-gray-300 focus:ring-2 focus:ring-blue-500 outline-none"/></div>
+    </div>
+    <div>
+      <label class="block text-sm font-medium text-gray-700 mb-2">Password</label>
+      <div class="relative"><i data-lucide="lock" class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-5 h-5"></i><input type="password" name="password" required placeholder="password" class="w-full pl-10 pr-4 py-3 rounded-xl border border-gray-300 focus:ring-2 focus:ring-blue-500 outline-none"/></div>
+    </div>
+    <div>
+      <label class="block text-sm font-medium text-gray-700 mb-2">Role</label>
+      <select name="role" id="role" onchange="toggleOrg()" class="w-full px-4 py-3 rounded-xl border border-gray-300 bg-white outline-none">
+        <option value="Admin">Admin (organization)</option>
+        <option value="System admin">System admin</option>
+      </select>
+    </div>
+    <div id="org-field">
+      <label class="block text-sm font-medium text-gray-700 mb-2">Organization</label>
+      <select name="organization_id" class="w-full px-4 py-3 rounded-xl border border-gray-300 bg-white outline-none">
+        {% for org in organizations %}<option value="{{ org.id }}">{{ org.name }}</option>{% endfor %}
+      </select>
+    </div>
+    <button type="submit" class="w-full bg-blue-600 text-white py-3 rounded-xl font-bold hover:bg-blue-700 transition shadow-md">Sign in</button>
+  </form>
+  <p class="text-center text-xs text-gray-400 mt-6">Any email/password works in this demo.</p>
+</div>
+<script>function toggleOrg(){document.getElementById('org-field').classList.toggle('hidden',document.getElementById('role').value==='System admin')}lucide.createIcons();</script>
+</body>
+</html>

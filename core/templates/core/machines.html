@@ -1,0 +1,55 @@
+﻿{% extends "core/base.html" %}
+{% load core_extras %}
+{% block content %}
+<div class="p-6">
+  <div class="flex flex-col md:flex-row justify-between items-center mb-6 gap-4">
+    <div><h1 class="text-2xl font-bold text-gray-800">Machines</h1>{% if current_org %}<p class="text-gray-500">{{ current_org.name }}</p>{% endif %}</div>
+    <button onclick="document.getElementById('add-form').classList.toggle('hidden')" class="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"><i data-lucide="plus" class="w-4 h-4"></i>Add machine</button>
+  </div>
+
+  <form method="get" class="flex flex-wrap gap-3 mb-6 bg-white p-3 rounded-xl border border-gray-200">
+    <div class="relative flex-1 min-w-[220px]"><i data-lucide="search" class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4"></i><input type="text" name="search" value="{{ search }}" placeholder="Search machine name or code" class="w-full pl-10 pr-4 py-2 rounded-lg border border-gray-200 outline-none"/></div>
+    <select name="status" onchange="this.form.submit()" class="px-4 py-2 border border-gray-200 rounded-lg bg-gray-50 text-sm"><option value="All" {% if status_filter == 'All' %}selected{% endif %}>All status</option><option value="Online" {% if status_filter == 'Online' %}selected{% endif %}>Online</option><option value="Offline" {% if status_filter == 'Offline' %}selected{% endif %}>Offline</option></select>
+    {% if is_system_admin %}<select name="organization" onchange="this.form.submit()" class="px-4 py-2 border border-gray-200 rounded-lg bg-gray-50 text-sm"><option value="All">All organizations</option>{% for org in organizations %}<option value="{{ org.id }}" {% if organization_filter == org.id %}selected{% endif %}>{{ org.name }}</option>{% endfor %}</select>{% endif %}
+    <button type="submit" class="px-4 py-2 bg-blue-50 text-blue-600 rounded-lg text-sm font-medium hover:bg-blue-100">Search</button>
+  </form>
+
+  <div id="add-form" class="hidden mb-6 bg-blue-50 border border-blue-200 p-4 rounded-xl">
+    <form id="form-add-machine" method="post" action="/machines/add/" class="grid grid-cols-1 md:grid-cols-5 gap-4 items-end">
+      {% csrf_token %}
+      <div><label class="text-xs font-bold text-gray-500 uppercase">Code</label><input type="text" name="code" required placeholder="SR-999" class="w-full p-2 rounded border mt-1"/></div>
+      <div><label class="text-xs font-bold text-gray-500 uppercase">Name</label><input type="text" name="name" required placeholder="Recycle Station X" class="w-full p-2 rounded border mt-1"/></div>
+      <div><label class="text-xs font-bold text-gray-500 uppercase">Location</label><input type="text" name="location" class="w-full p-2 rounded border mt-1"/></div>
+      {% if is_system_admin %}<div><label class="text-xs font-bold text-gray-500 uppercase">Organization</label><select name="organization_id" class="w-full p-2 rounded border mt-1">{% for org in organizations %}<option value="{{ org.id }}">{{ org.name }}</option>{% endfor %}</select></div>{% endif %}
+      <button type="button" onclick="showConfirm('Create machine','Save this machine?','form-add-machine')" class="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700">Save</button>
+    </form>
+  </div>
+
+  <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+    {% for m in machines %}
+    <div class="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden hover:shadow-md transition-shadow cursor-pointer group" onclick="openDetail('{{ m.id }}','{{ m.code }}','{{ m.name|escapejs }}','{{ m.location|escapejs }}','{{ m.status }}','{{ m.installDate|ddmmyy }}','{{ m.lastUpdate }}','{{ m.capacity }}','{{ m.organization_id }}')">
+      <div class="h-2" style="background:{{ m.card_color }}"></div>
+      <div class="p-4 border-b border-gray-100 flex justify-between items-start">
+        <div><h3 class="font-bold text-lg text-gray-800 group-hover:text-blue-600 transition-colors">{{ m.name }}</h3><p class="text-xs text-gray-500 font-mono bg-gray-100 inline-block px-1 rounded">{{ m.code }}</p>{% if is_system_admin %}<p class="text-xs text-gray-400 mt-1">{{ m.organization_name }}</p>{% endif %}</div>
+        <span class="w-3 h-3 rounded-full mt-1 {% if m.status == 'Online' %}bg-green-500{% else %}bg-red-500{% endif %}"></span>
+      </div>
+      <div class="p-4"><p class="text-sm text-gray-600 mb-4 flex items-center gap-1"><i data-lucide="map-pin" class="w-3.5 h-3.5"></i>{{ m.location|default:"-" }}</p>{% include "core/_bin_level.html" with label="Plastic" level=m.plastic color="bg-blue-500" %}{% include "core/_bin_level.html" with label="Glass" level=m.glass color="bg-green-500" %}{% include "core/_bin_level.html" with label="Can" level=m.can color="bg-orange-500" %}</div>
+    </div>
+    {% empty %}<p class="col-span-4 text-center py-12 text-gray-400">No machines found.</p>{% endfor %}
+  </div>
+</div>
+
+<div id="detail-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
+  <div class="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden animate-fadein">
+    <div class="p-6 border-b border-gray-100 flex justify-between items-center bg-gray-50"><h2 class="text-xl font-bold text-gray-800">Machine detail</h2><button onclick="closeDetail()" class="text-gray-400 hover:text-gray-600"><i data-lucide="x" class="w-6 h-6"></i></button></div>
+    <div id="detail-view" class="p-6 space-y-4"><div class="flex justify-between"><div><p class="text-xs text-gray-400 uppercase">Code</p><p id="d-code" class="font-bold text-lg"></p></div><div class="text-right"><p class="text-xs text-gray-400 uppercase">Status</p><span id="d-status-badge"></span></div></div><div><p class="text-xs text-gray-400 uppercase">Name</p><p id="d-name" class="font-medium"></p></div><div><p class="text-xs text-gray-400 uppercase">Location</p><p id="d-location" class="font-medium"></p></div><div class="grid grid-cols-2 gap-4"><div><p class="text-xs text-gray-400 uppercase">Installed</p><p id="d-install" class="font-medium"></p></div><div><p class="text-xs text-gray-400 uppercase">Updated</p><p id="d-update" class="font-medium"></p></div></div></div>
+    <div id="detail-edit" class="hidden p-6"><form id="form-edit-machine" method="post" action="/machines/edit/" class="space-y-4">{% csrf_token %}<input type="hidden" name="id" id="edit-id"/><div><label class="text-sm font-bold text-gray-600">Name</label><input type="text" name="name" id="edit-name" class="w-full p-2 border rounded mt-1"/></div><div><label class="text-sm font-bold text-gray-600">Location</label><input type="text" name="location" id="edit-location" class="w-full p-2 border rounded mt-1"/></div><div><label class="text-sm font-bold text-gray-600">Capacity</label><input type="text" name="capacity" id="edit-capacity" class="w-full p-2 border rounded mt-1"/></div>{% if is_system_admin %}<div><label class="text-sm font-bold text-gray-600">Organization</label><select name="organization_id" id="edit-organization" class="w-full p-2 border rounded mt-1">{% for org in organizations %}<option value="{{ org.id }}">{{ org.name }}</option>{% endfor %}</select></div>{% endif %}</form></div>
+    <div class="p-6 border-t border-gray-100 flex justify-end gap-3 bg-gray-50"><div id="btn-view-mode"><button onclick="switchToEdit()" class="px-4 py-2 bg-blue-100 text-blue-700 rounded-lg hover:bg-blue-200 flex items-center gap-2"><i data-lucide="edit" class="w-4 h-4"></i>Edit</button></div><div id="btn-edit-mode" class="hidden flex gap-3"><button onclick="switchToView()" class="px-4 py-2 text-gray-600 hover:bg-gray-200 rounded-lg">Cancel</button><button type="button" onclick="showConfirm('Update machine','Save changes?','form-edit-machine')" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">Save</button></div></div>
+  </div>
+</div>
+<script>
+lucide.createIcons();let currentMachine={};
+function openDetail(id,code,name,location,status,installDate,lastUpdate,capacity,organizationId){currentMachine={id,code,name,location,status,installDate,lastUpdate,capacity,organizationId};document.getElementById('d-code').textContent=code;document.getElementById('d-name').textContent=name;document.getElementById('d-location').textContent=location;document.getElementById('d-install').textContent=installDate;document.getElementById('d-update').textContent=lastUpdate;const badge=document.getElementById('d-status-badge');badge.textContent=status;badge.className='px-2 py-1 rounded text-xs font-bold '+(status==='Online'?'bg-green-100 text-green-700':'bg-red-100 text-red-700');switchToView();document.getElementById('detail-modal').classList.remove('hidden')}
+function closeDetail(){document.getElementById('detail-modal').classList.add('hidden')}function switchToEdit(){document.getElementById('detail-view').classList.add('hidden');document.getElementById('detail-edit').classList.remove('hidden');document.getElementById('btn-view-mode').classList.add('hidden');document.getElementById('btn-edit-mode').classList.remove('hidden');document.getElementById('edit-id').value=currentMachine.id;document.getElementById('edit-name').value=currentMachine.name;document.getElementById('edit-location').value=currentMachine.location;document.getElementById('edit-capacity').value=currentMachine.capacity;const org=document.getElementById('edit-organization');if(org)org.value=currentMachine.organizationId}function switchToView(){document.getElementById('detail-view').classList.remove('hidden');document.getElementById('detail-edit').classList.add('hidden');document.getElementById('btn-view-mode').classList.remove('hidden');document.getElementById('btn-edit-mode').classList.add('hidden')}
+</script>
+{% endblock %}
