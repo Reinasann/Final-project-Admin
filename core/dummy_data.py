@@ -1,18 +1,26 @@
 """Compatibility adapters that expose SQLite records in the legacy template shape."""
 
+from datetime import datetime
+
 from .models import CollectionHistory, IssueCategory, IssueReport, Machine, Organization, User
 from django.utils import timezone
 
 
+def local_datetime(value):
+    if isinstance(value, datetime) and timezone.is_aware(value):
+        return timezone.localtime(value)
+    return value
+
+
 def display_date(value):
+    value = local_datetime(value)
     return value.strftime('%d/%m/%Y') if value else '-'
 
 
 def display_datetime(value):
     if not value:
         return '-'
-    if timezone.is_aware(value):
-        value = timezone.localtime(value)
+    value = local_datetime(value)
     return value.strftime('%d/%m/%Y %H:%M')
 
 
@@ -46,11 +54,17 @@ def get_users(session):
 
 
 def get_issues(session):
-    return [{'id': row.id, 'title': row.category.name, 'status': row.status,
-             'time': row.reported_at.strftime('%H:%M'), 'reporter': row.reporter.name,
-             'description': row.description, 'location': row.machine.name,
-             'reportDate': row.reported_at.date().isoformat(), 'organization_id': row.machine.organization_id}
-            for row in IssueReport.objects.select_related('category', 'reporter', 'machine').all()]
+    result = []
+    for row in IssueReport.objects.select_related('category', 'reporter', 'machine').all():
+        reported_at = local_datetime(row.reported_at)
+        result.append({
+            'id': row.id, 'title': row.category.name, 'status': row.status,
+            'time': reported_at.strftime('%H:%M'), 'reporter': row.reporter.name,
+            'description': row.description, 'location': row.machine.name,
+            'reportDate': reported_at.date().isoformat(),
+            'organization_id': row.machine.organization_id,
+        })
+    return result
 
 
 def get_topics(session):
@@ -59,10 +73,17 @@ def get_topics(session):
 
 def get_collection_history():
     names = {'plastic': 'Plastic', 'glass': 'Glass', 'can': 'Can'}
-    return [{'id': row.id, 'date': row.collected_at.date().isoformat(), 'time': row.collected_at.strftime('%H:%M'),
-             'machine': row.bin.machine.name, 'type': names[row.bin.waste_type], 'weight': float(row.weight_kg),
-             'staff': row.collector.name, 'organization_id': row.bin.machine.organization_id}
-            for row in CollectionHistory.objects.select_related('bin__machine', 'collector').all()]
+    result = []
+    for row in CollectionHistory.objects.select_related('bin__machine', 'collector').all():
+        collected_at = local_datetime(row.collected_at)
+        result.append({
+            'id': row.id, 'date': collected_at.date().isoformat(),
+            'time': collected_at.strftime('%H:%M'), 'machine': row.bin.machine.name,
+            'type': names[row.bin.waste_type], 'weight': float(row.weight_kg),
+            'staff': row.collector.name,
+            'organization_id': row.bin.machine.organization_id,
+        })
+    return result
 
 
 MOCK_COLLECTION_HISTORY = []  # Kept only to avoid imports in older code; views use get_collection_history().

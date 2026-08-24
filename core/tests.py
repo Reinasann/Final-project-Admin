@@ -1,11 +1,12 @@
 import csv
 import json
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone as datetime_timezone
 from io import StringIO
 
 from django.test import TestCase, override_settings
 from django.utils import timezone
 
+from .dummy_data import get_collection_history, get_issues
 from .models import (
     ApiToken, CollectionHistory, IssueCategory, IssueReport, Machine, MachineBin,
     MachineInformation, Notification, NotificationEvent, Organization,
@@ -293,6 +294,38 @@ class ApiTests(TestCase):
             ).status_code,
             401,
         )
+
+    def test_admin_rows_display_datetimes_in_bangkok_timezone(self):
+        utc_datetime = datetime(
+            2026,
+            8,
+            24,
+            12,
+            55,
+            tzinfo=datetime_timezone.utc,
+        )
+        CollectionHistory.objects.create(
+            bin=self.machine.bins.get(waste_type=MachineBin.WasteType.GLASS),
+            collector=self.user,
+            weight_kg="9.20",
+            collected_at=utc_datetime,
+        )
+        category = IssueCategory.objects.create(name="Sensor")
+        issue = IssueReport.objects.create(
+            machine=self.machine,
+            category=category,
+            reporter=self.user,
+            description="Test timezone",
+        )
+        IssueReport.objects.filter(pk=issue.pk).update(reported_at=utc_datetime)
+
+        collection = get_collection_history()[0]
+        issue_row = get_issues({})[0]
+
+        self.assertEqual(collection["date"], "2026-08-24")
+        self.assertEqual(collection["time"], "19:55")
+        self.assertEqual(issue_row["reportDate"], "2026-08-24")
+        self.assertEqual(issue_row["time"], "19:55")
 
     def test_mobile_device_can_register_and_unregister_push_token(self):
         token = self.login_token()
