@@ -91,14 +91,17 @@ def token_required(view):
             return response_error("Bearer token is required.", 401)
         raw_token = header[7:].strip()
         now = timezone.now()
-        for token in ApiToken.objects.select_related("user").filter(revoked_at__isnull=True):
-            if token.is_valid(raw_token, now):
-                if token.user.status != User.Status.ACTIVE:
-                    return response_error("This account is not active.", 403)
-                request.api_user = token.user
-                request.api_token = token
-                return view(request, *args, **kwargs)
-        return response_error("Invalid or expired token.", 401)
+        token = ApiToken.objects.select_related("user").filter(
+            token_hash=ApiToken.digest_token(raw_token),
+            revoked_at__isnull=True,
+        ).first()
+        if token is None or not token.is_valid(raw_token, now):
+            return response_error("Invalid or expired token.", 401)
+        if token.user.status != User.Status.ACTIVE:
+            return response_error("This account is not active.", 403)
+        request.api_user = token.user
+        request.api_token = token
+        return view(request, *args, **kwargs)
     return wrapped
 
 

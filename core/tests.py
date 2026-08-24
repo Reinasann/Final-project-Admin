@@ -269,6 +269,31 @@ class ApiTests(TestCase):
         self.assertIsNotNone(ApiToken.objects.get(user=self.user).revoked_at)
         self.assertEqual(self.client.get("/api/v1/me/", **auth).status_code, 401)
 
+    def test_api_token_uses_direct_digest_lookup(self):
+        token = self.login_token()
+        stored_token = ApiToken.objects.get(user=self.user)
+
+        self.assertEqual(
+            stored_token.token_hash,
+            ApiToken.digest_token(token),
+        )
+        self.assertNotEqual(stored_token.token_hash, token)
+        self.assertEqual(len(stored_token.token_hash), 64)
+        self.assertEqual(
+            self.client.get(
+                "/api/v1/me/",
+                HTTP_AUTHORIZATION=f"Bearer {token}",
+            ).status_code,
+            200,
+        )
+        self.assertEqual(
+            self.client.get(
+                "/api/v1/me/",
+                HTTP_AUTHORIZATION="Bearer invalid-token",
+            ).status_code,
+            401,
+        )
+
     def test_mobile_device_can_register_and_unregister_push_token(self):
         token = self.login_token()
         auth = {"HTTP_AUTHORIZATION": f"Bearer {token}"}

@@ -1,5 +1,8 @@
 """Persistent SQLite models for the Smart Recycle system."""
 
+import hashlib
+import hmac
+
 from django.contrib.auth.hashers import check_password, make_password
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
@@ -286,14 +289,21 @@ class ApiToken(models.Model):
     expires_at = models.DateTimeField(null=True, blank=True)
     revoked_at = models.DateTimeField(null=True, blank=True)
 
+    @staticmethod
+    def digest_token(raw_token):
+        return hashlib.sha256(raw_token.encode("utf-8")).hexdigest()
+
     def set_token(self, raw_token):
-        self.token_hash = make_password(raw_token)
+        self.token_hash = self.digest_token(raw_token)
 
     def is_valid(self, raw_token, now):
         return (
             self.revoked_at is None
             and (self.expires_at is None or self.expires_at > now)
-            and check_password(raw_token, self.token_hash)
+            and hmac.compare_digest(
+                self.token_hash,
+                self.digest_token(raw_token),
+            )
         )
 
 
