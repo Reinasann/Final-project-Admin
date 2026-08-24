@@ -399,6 +399,10 @@ def organizations_view(request):
         copied['user_count'] = sum(1 for u in users if u.get('organization_id') == org['id'])
         copied['issue_count'] = sum(1 for i in issues if i.get('organization_id') == org['id'])
         orgs.append(copied)
+    orgs.sort(
+        key=lambda org: (org['created_at'], org['id']),
+        reverse=True,
+    )
 
     toast = request.session.pop('toast', None)
     organization_colors = [
@@ -510,7 +514,7 @@ def machines_view(request):
             machine.device_id: machine
             for machine in Machine.objects.exclude(device_id__isnull=True)
         }
-        for device in MachineInformation.objects.order_by('serial_number'):
+        for device in MachineInformation.objects.order_by('-created_at', '-serial_number'):
             assigned_machine = assigned_by_serial.get(device.serial_number)
             row = {
                 'serial_number': device.serial_number,
@@ -794,7 +798,9 @@ def machine_toggle(request):
 
 @login_required
 def users_view(request):
-    users = User.objects.select_related('organization').exclude(role=User.Role.SUPER_ADMIN)
+    users = User.objects.select_related('organization').exclude(
+        role=User.Role.SUPER_ADMIN,
+    ).order_by('-created_at', '-id')
     search = request.GET.get('search', '')
     role_filter = request.GET.get('role', 'All')
     status_filter = request.GET.get('status', 'All')

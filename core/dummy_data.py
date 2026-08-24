@@ -25,12 +25,23 @@ def display_datetime(value):
 
 
 def get_organizations(session):
-    return [{'id': row.id, 'name': row.name, 'card_color': row.card_color} for row in Organization.objects.order_by('name')]
+    return [
+        {
+            'id': row.id,
+            'name': row.name,
+            'card_color': row.card_color,
+            'created_at': row.created_at,
+        }
+        for row in Organization.objects.order_by('name')
+    ]
 
 
 def get_machines(session):
     result = []
-    for row in Machine.objects.select_related('device').prefetch_related('bins').all():
+    rows = Machine.objects.select_related('device').prefetch_related('bins').order_by(
+        '-created_at', '-id',
+    )
+    for row in rows:
         bins = {bin.waste_type: bin for bin in row.bins.all()}
         level = lambda waste_type: float(bins[waste_type].current_level_percent) if waste_type in bins else 0
         result.append({'id': row.id, 'code': row.code, 'name': row.name, 'location': row.location,
@@ -50,7 +61,7 @@ def get_users(session):
     return [{'id': row.id, 'name': row.name, 'email': row.email, 'phone': row.phone,
              'role': 'Admin' if row.role == User.Role.ORGANIZATION_ADMIN else ('System admin' if row.role == User.Role.SUPER_ADMIN else 'Collector'),
              'status': row.status, 'organization_id': row.organization_id}
-            for row in User.objects.all()]
+            for row in User.objects.order_by('-created_at', '-id')]
 
 
 def get_issues(session):

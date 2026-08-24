@@ -327,6 +327,137 @@ class ApiTests(TestCase):
         self.assertEqual(issue_row["reportDate"], "2026-08-24")
         self.assertEqual(issue_row["time"], "19:55")
 
+    def test_admin_entity_lists_show_newest_items_first(self):
+        older_time = timezone.now() - timedelta(days=1)
+        newest_organization = Organization.objects.create(
+            id="org-new",
+            name="Newest Organization",
+            card_color="#16a34a",
+        )
+        newest_user = User(
+            id="U-NEW",
+            organization=self.organization,
+            name="Newest Collector",
+            email="newest@example.com",
+            role=User.Role.COLLECTOR,
+            status=User.Status.ACTIVE,
+        )
+        newest_user.set_password("password123")
+        newest_user.save()
+        machine_device = MachineInformation.objects.create(
+            serial_number="ESP32-SR-010",
+            model="ESP32",
+            hardware_status=MachineInformation.HardwareStatus.INSTALLED,
+        )
+        newest_machine = Machine.objects.create(
+            id="M010",
+            organization=self.organization,
+            device=machine_device,
+            code="SR-010",
+            name="Newest Station",
+            location="Building 10",
+        )
+        newest_prepared_device = MachineInformation.objects.create(
+            serial_number="ESP32-SR-011",
+            model="ESP32",
+            hardware_status=MachineInformation.HardwareStatus.AVAILABLE,
+        )
+        Organization.objects.filter(pk=self.organization.pk).update(
+            created_at=older_time,
+        )
+        User.objects.filter(pk=self.user.pk).update(created_at=older_time)
+        Machine.objects.filter(pk=self.machine.pk).update(created_at=older_time)
+        MachineInformation.objects.filter(pk=self.device.pk).update(
+            created_at=older_time,
+        )
+
+        self.client.post(
+            "/",
+            data={
+                "email": self.admin.email,
+                "password": "admin-password",
+            },
+        )
+
+        organizations_response = self.client.get("/organizations/")
+        users_response = self.client.get("/users/?view=all")
+        machines_response = self.client.get("/machines/?devices=1")
+
+        self.assertEqual(
+            organizations_response.context["organizations_list"][0]["id"],
+            newest_organization.id,
+        )
+        self.assertEqual(
+            users_response.context["active_users"][0]["id"],
+            newest_user.id,
+        )
+        self.assertEqual(
+            machines_response.context["machines"][0]["id"],
+            newest_machine.id,
+        )
+        self.assertEqual(
+            machines_response.context["device_rows_page"][0]["serial_number"],
+            newest_prepared_device.serial_number,
+        )
+        token = self.login_token()
+        machines_api_response = self.client.get(
+            "/api/v1/machines/",
+            HTTP_AUTHORIZATION=f"Bearer {token}",
+        )
+        self.assertEqual(
+            machines_api_response.json()["results"][0]["id"],
+            newest_machine.id,
+        )
+
+    def test_activity_apis_keep_newest_records_first(self):
+        older_time = timezone.now() - timedelta(hours=1)
+        newer_time = timezone.now()
+        bin_item = self.machine.bins.get(waste_type=MachineBin.WasteType.GLASS)
+        older_collection = CollectionHistory.objects.create(
+            bin=bin_item,
+            collector=self.user,
+            weight_kg="1.00",
+            collected_at=older_time,
+        )
+        newer_collection = CollectionHistory.objects.create(
+            bin=bin_item,
+            collector=self.user,
+            weight_kg="2.00",
+            collected_at=newer_time,
+        )
+        category = IssueCategory.objects.create(name="Ordering issue")
+        older_issue = IssueReport.objects.create(
+            machine=self.machine,
+            category=category,
+            reporter=self.user,
+            description="Older issue",
+        )
+        newer_issue = IssueReport.objects.create(
+            machine=self.machine,
+            category=category,
+            reporter=self.user,
+            description="Newer issue",
+        )
+        IssueReport.objects.filter(pk=older_issue.pk).update(reported_at=older_time)
+        IssueReport.objects.filter(pk=newer_issue.pk).update(reported_at=newer_time)
+        token = self.login_token()
+        auth = {"HTTP_AUTHORIZATION": f"Bearer {token}"}
+
+        collections_response = self.client.get(
+            "/api/v1/collections/?mine=1",
+            **auth,
+        )
+        issues_response = self.client.get("/api/v1/issues/?mine=1", **auth)
+
+        self.assertEqual(
+            [row["id"] for row in collections_response.json()["results"][:2]],
+            [newer_collection.id, older_collection.id],
+        )
+        self.assertEqual(
+            [row["id"] for row in issues_response.json()["results"][:2]],
+            [newer_issue.id, older_issue.id],
+        )
+
     def test_mobile_device_can_register_and_unregister_push_token(self):
         token = self.login_token()
         auth = {"HTTP_AUTHORIZATION": f"Bearer {token}"}

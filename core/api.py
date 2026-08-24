@@ -106,7 +106,9 @@ def token_required(view):
 
 
 def visible_machines(user):
-    machines = Machine.objects.select_related("organization").prefetch_related("bins")
+    machines = Machine.objects.select_related("organization").prefetch_related(
+        "bins",
+    ).order_by("-created_at", "-id")
     if user.role == User.Role.SUPER_ADMIN:
         return machines
     if not user.organization_id:

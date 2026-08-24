@@ -7,6 +7,7 @@ from django.contrib.auth.hashers import check_password, make_password
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
 from django.db.models.functions import Lower
+from django.utils import timezone
 
 
 class Organization(models.Model):
@@ -75,6 +76,7 @@ class MachineInformation(models.Model):
     api_key_hash = models.CharField(max_length=128, blank=True)
     firmware_version = models.CharField(max_length=50, blank=True)
     last_seen_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(default=timezone.now, editable=False)
 
     def set_api_key(self, raw_key):
         self.api_key_hash = make_password(raw_key)
@@ -105,6 +107,7 @@ class Machine(models.Model):
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.OFFLINE)
     installed_on = models.DateField(null=True, blank=True)
     last_updated_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(default=timezone.now, editable=False)
 
     def __str__(self):
         return f"{self.code} - {self.name}"
