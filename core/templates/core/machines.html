@@ -1,55 +1,604 @@
-﻿{% extends "core/base.html" %}
+{% extends "core/base.html" %}
 {% load core_extras %}
 {% block content %}
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+<style>
+  .machine-overview-popup .leaflet-popup-content {
+    box-sizing: border-box;
+  }
+
+  .machine-overview-popup .leaflet-popup-content button {
+    box-sizing: border-box;
+    display: block;
+    max-width: 100%;
+  }
+</style>
 <div class="p-6">
   <div class="flex flex-col md:flex-row justify-between items-center mb-6 gap-4">
-    <div><h1 class="text-2xl font-bold text-gray-800">Machines</h1>{% if current_org %}<p class="text-gray-500">{{ current_org.name }}</p>{% endif %}</div>
-    <button onclick="document.getElementById('add-form').classList.toggle('hidden')" class="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"><i data-lucide="plus" class="w-4 h-4"></i>Add machine</button>
+    <div><h1 class="text-2xl font-bold text-gray-800">จัดการเครื่อง</h1>{% if current_org %}<p class="text-gray-500">{{ current_org.name }}</p>{% else %}<p class="text-gray-500">แอดมินสูงสุดเพิ่มเครื่องและกำหนดหน่วยงาน</p>{% endif %}</div>
+    <div class="flex flex-wrap gap-2">
+      <button type="button" onclick="openOverviewMapModal()" class="flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-2 text-emerald-700 hover:bg-emerald-100"><i data-lucide="map" class="h-4 w-4"></i>เปิดแผนที่</button>
+      {% if is_system_admin %}<button onclick="document.getElementById('device-panel').classList.toggle('hidden')" class="flex items-center gap-2 px-4 py-2 rounded-lg border border-blue-200 bg-blue-50 text-blue-700"><i data-lucide="cpu" class="w-4 h-4"></i>จัดการ Serial Number</button><button onclick="document.getElementById('add-form').classList.toggle('hidden')" class="flex items-center gap-2 px-4 py-2 text-white rounded-lg accent-bg"><i data-lucide="plus" class="w-4 h-4"></i>เพิ่มเครื่อง</button>{% endif %}
+    </div>
   </div>
+
+  {% if is_system_admin and device_credentials %}
+  <div class="mb-6 rounded-xl border border-amber-300 bg-amber-50 p-4">
+    <div class="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+      <div><div class="flex items-center gap-2 font-bold text-amber-900"><i data-lucide="key-round" class="h-5 w-5"></i>ข้อมูลสำหรับตั้งค่า ESP32 - แสดงครั้งเดียว</div><p class="mt-1 text-xs text-amber-700">คัดลอก API Key เก็บไว้ก่อนออกจากหน้านี้ ระบบจัดเก็บเฉพาะค่าที่เข้ารหัส</p></div>
+      <button type="button" onclick="copyDeviceKey()" class="flex items-center justify-center gap-2 rounded-lg bg-amber-600 px-3 py-2 text-sm font-medium text-white"><i data-lucide="copy" class="h-4 w-4"></i>คัดลอก</button>
+    </div>
+    <div class="mt-3 grid gap-2 text-sm md:grid-cols-2"><div class="rounded-lg bg-white p-3"><span class="text-xs text-gray-500">Serial Number</span><div id="created-device-serial" class="mt-1 font-mono font-bold">{{ device_credentials.serial_number }}</div></div><div class="rounded-lg bg-white p-3"><span class="text-xs text-gray-500">X-Device-Key</span><div id="created-device-key" class="mt-1 break-all font-mono font-bold">{{ device_credentials.api_key }}</div></div></div>
+  </div>
+  {% endif %}
+
+  {% if is_system_admin %}
+  <section id="device-panel" class="{% if not show_devices %}hidden {% endif %}mb-6 overflow-hidden rounded-xl border border-blue-200 bg-white shadow-sm">
+    <div class="border-b border-blue-100 bg-blue-50 p-4"><h2 class="flex items-center gap-2 text-lg font-bold text-blue-900"><i data-lucide="cpu" class="h-5 w-5"></i>เตรียม Serial Number ของอุปกรณ์</h2><p class="mt-1 text-sm text-blue-700">ลงทะเบียน ESP32 และ API Key ไว้ก่อน จากนั้นจึงเลือก Serial Number ตอนเพิ่มเครื่อง</p></div>
+    <div class="p-4">
+      <form id="form-add-device" method="post" action="/machines/devices/add/" class="grid grid-cols-1 items-end gap-3 md:grid-cols-5">{% csrf_token %}
+        <div><label class="text-xs font-bold text-gray-600">SERIAL NUMBER</label><input name="serial_number" required maxlength="30" pattern="[A-Za-z0-9._-]{3,30}" placeholder="ESP32-SR-005" class="mt-1 w-full rounded-lg border p-2 font-mono uppercase"/></div>
+        <div><label class="text-xs font-bold text-gray-600">รุ่นอุปกรณ์</label><input name="model" value="ESP32" maxlength="50" class="mt-1 w-full rounded-lg border p-2"/></div>
+        <div><label class="text-xs font-bold text-gray-600">Firmware</label><input name="firmware_version" placeholder="เช่น 1.0.0" maxlength="50" class="mt-1 w-full rounded-lg border p-2"/></div>
+        <div><label class="text-xs font-bold text-gray-600">API Key (ไม่กรอกจะสร้างอัตโนมัติ)</label><div class="relative mt-1"><input id="new-device-api-key" type="password" name="api_key" minlength="8" class="w-full rounded-lg border p-2 pr-10 font-mono"/><button type="button" onclick="toggleDeviceKeyInput()" class="absolute right-2 top-1/2 -translate-y-1/2 text-gray-500" title="แสดง/ซ่อน API Key"><i data-lucide="eye" class="h-4 w-4"></i></button></div></div>
+        <button type="button" onclick="showConfirm('ยืนยัน Serial Number','ลงทะเบียน Serial Number และเตรียม API Key นี้หรือไม่?','form-add-device')" class="h-10 rounded-lg bg-blue-600 px-4 text-sm font-medium text-white hover:bg-blue-700">ลงทะเบียนอุปกรณ์</button>
+      </form>
+    </div>
+    <div class="overflow-x-auto border-t border-gray-100"><table class="w-full text-left text-sm"><thead class="bg-gray-50 text-xs text-gray-500"><tr><th class="p-3">Serial Number</th><th class="p-3">รุ่น / Firmware</th><th class="p-3">สถานะ</th><th class="p-3">เครื่องที่ผูก</th><th class="p-3 text-right">จัดการ</th></tr></thead><tbody class="divide-y divide-gray-100">{% for device in device_rows_page %}<tr><td class="p-3 font-mono font-semibold">{{ device.serial_number }}</td><td class="p-3">{{ device.model }}<div class="text-xs text-gray-400">Firmware {{ device.firmware_version }}</div></td><td class="p-3"><span class="rounded-full px-2 py-1 text-xs font-semibold {% if device.hardware_status == 'Available' %}bg-green-100 text-green-700{% elif device.hardware_status == 'Installed' %}bg-blue-100 text-blue-700{% else %}bg-amber-100 text-amber-700{% endif %}">{{ device.status_th }}</span></td><td class="p-3">{% if device.machine_id %}<span class="font-medium">{{ device.machine_code }}</span><div class="text-xs text-gray-400">{{ device.machine_name }}</div>{% else %}<span class="text-green-600">พร้อมเลือกตอนเพิ่มเครื่อง</span>{% endif %}</td><td class="p-3"><div class="flex justify-end gap-2"><form id="reset-key-{{ forloop.counter }}" method="post" action="/machines/devices/regenerate-key/">{% csrf_token %}<input type="hidden" name="serial_number" value="{{ device.serial_number }}"/></form><button type="button" onclick="showConfirm('สร้าง API Key ใหม่','API Key เดิมของ {{ device.serial_number }} จะใช้งานไม่ได้ ต้องการดำเนินการหรือไม่?','reset-key-{{ forloop.counter }}')" class="rounded-lg bg-amber-50 px-2 py-1 text-xs font-medium text-amber-700">สร้าง Key ใหม่</button>{% if not device.machine_id %}<form id="delete-device-{{ forloop.counter }}" method="post" action="/machines/devices/delete/">{% csrf_token %}<input type="hidden" name="serial_number" value="{{ device.serial_number }}"/></form><button type="button" onclick="showConfirm('ลบ Serial Number','ต้องการลบ {{ device.serial_number }} หรือไม่?','delete-device-{{ forloop.counter }}')" class="rounded-lg bg-red-50 px-2 py-1 text-xs font-medium text-red-700">ลบ</button>{% endif %}</div></td></tr>{% empty %}<tr><td colspan="5" class="p-8 text-center text-gray-400">ยังไม่มี Serial Number ที่ลงทะเบียน</td></tr>{% endfor %}</tbody></table></div>
+    {% include "core/_pagination.html" with pagination=devices_pagination %}
+  </section>
+  {% endif %}
 
   <form method="get" class="flex flex-wrap gap-3 mb-6 bg-white p-3 rounded-xl border border-gray-200">
-    <div class="relative flex-1 min-w-[220px]"><i data-lucide="search" class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4"></i><input type="text" name="search" value="{{ search }}" placeholder="Search machine name or code" class="w-full pl-10 pr-4 py-2 rounded-lg border border-gray-200 outline-none"/></div>
-    <select name="status" onchange="this.form.submit()" class="px-4 py-2 border border-gray-200 rounded-lg bg-gray-50 text-sm"><option value="All" {% if status_filter == 'All' %}selected{% endif %}>All status</option><option value="Online" {% if status_filter == 'Online' %}selected{% endif %}>Online</option><option value="Offline" {% if status_filter == 'Offline' %}selected{% endif %}>Offline</option></select>
-    {% if is_system_admin %}<select name="organization" onchange="this.form.submit()" class="px-4 py-2 border border-gray-200 rounded-lg bg-gray-50 text-sm"><option value="All">All organizations</option>{% for org in organizations %}<option value="{{ org.id }}" {% if organization_filter == org.id %}selected{% endif %}>{{ org.name }}</option>{% endfor %}</select>{% endif %}
-    <button type="submit" class="px-4 py-2 bg-blue-50 text-blue-600 rounded-lg text-sm font-medium hover:bg-blue-100">Search</button>
+    <input type="hidden" name="page_size" value="{{ machines_pagination.page_size }}"/>
+    <input type="hidden" name="device_page_size" value="{{ devices_pagination.page_size }}"/>
+    {% if show_devices %}<input type="hidden" name="devices" value="1"/>{% endif %}
+    <div class="relative flex-1 min-w-[220px]"><i data-lucide="search" class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4"></i><input type="text" name="search" value="{{ search }}" placeholder="ค้นหาชื่อเครื่องหรือรหัสเครื่อง" class="w-full pl-10 pr-4 py-2 rounded-lg border border-gray-200 outline-none"/></div>
+    <select name="status" onchange="this.form.submit()" class="px-4 py-2 border border-gray-200 rounded-lg bg-gray-50 text-sm"><option value="All" {% if status_filter == 'All' %}selected{% endif %}>ทุกสถานะ</option><option value="Online" {% if status_filter == 'Online' %}selected{% endif %}>เปิดใช้งาน</option><option value="Offline" {% if status_filter == 'Offline' %}selected{% endif %}>ปิดใช้งาน</option></select>
+    {% if is_system_admin %}<select name="organization" onchange="this.form.submit()" class="px-4 py-2 border border-gray-200 rounded-lg bg-gray-50 text-sm"><option value="All">ทุกหน่วยงาน</option>{% for org in organizations %}<option value="{{ org.id }}" {% if organization_filter == org.id %}selected{% endif %}>{{ org.name }}</option>{% endfor %}</select>{% endif %}
+    <button type="submit" class="px-4 py-2 accent-soft rounded-lg text-sm font-medium">ค้นหา</button>
   </form>
 
+  <div id="overview-map-modal" role="dialog" aria-modal="true" aria-labelledby="overview-map-title" class="hidden fixed inset-0 z-[60] overflow-y-auto bg-black/50 p-4 backdrop-blur-sm" onclick="if(event.target === this) closeOverviewMapModal()">
+  <section class="mx-auto my-4 max-w-6xl overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-2xl" onclick="event.stopPropagation()">
+    <div class="flex flex-col gap-3 border-b border-gray-100 p-4 lg:flex-row lg:items-center lg:justify-between">
+      <div>
+        <h2 id="overview-map-title" class="flex items-center gap-2 text-lg font-bold text-gray-800"><i data-lucide="map" class="h-5 w-5 text-blue-600"></i>แผนที่เครื่องทั้งหมด</h2>
+        <p class="mt-1 text-sm text-gray-500">ดูตำแหน่งและสถานะของเครื่องที่อยู่ในขอบเขตสิทธิ์ของคุณ</p>
+      </div>
+      <div class="flex flex-wrap items-center gap-2">
+        <span id="overview-coordinate-count" class="mr-1 text-xs text-gray-500"></span>
+        <button type="button" data-overview-filter="All" onclick="setOverviewFilter('All')" class="overview-filter rounded-full bg-gray-800 px-3 py-1.5 text-xs font-semibold text-white">ทั้งหมด</button>
+        <button type="button" data-overview-filter="Online" onclick="setOverviewFilter('Online')" class="overview-filter rounded-full bg-gray-100 px-3 py-1.5 text-xs font-semibold text-gray-600">ออนไลน์</button>
+        <button type="button" data-overview-filter="Offline" onclick="setOverviewFilter('Offline')" class="overview-filter rounded-full bg-gray-100 px-3 py-1.5 text-xs font-semibold text-gray-600">ออฟไลน์</button>
+        <button id="overview-map-close" type="button" onclick="closeOverviewMapModal()" aria-label="ปิดแผนที่" class="ml-1 rounded-lg p-2 text-gray-400 hover:bg-gray-100 hover:text-gray-700"><i data-lucide="x" class="h-5 w-5"></i></button>
+      </div>
+    </div>
+    <div class="grid lg:grid-cols-[minmax(0,2fr)_minmax(280px,1fr)]">
+      <div class="relative min-h-[360px] border-b border-gray-100 lg:border-b-0 lg:border-r">
+        <div id="machine-overview-map" class="h-[420px] w-full bg-gray-100"></div>
+        <div class="pointer-events-none absolute bottom-3 left-3 z-[500] flex flex-wrap gap-2 rounded-lg bg-white/95 px-3 py-2 text-xs shadow">
+          <span class="flex items-center gap-1"><span class="h-2.5 w-2.5 rounded-full bg-green-500"></span>ออนไลน์</span>
+          <span class="flex items-center gap-1"><span class="h-2.5 w-2.5 rounded-full bg-red-500"></span>ออฟไลน์</span>
+          <span class="flex items-center gap-1"><span class="h-2.5 w-2.5 rounded-full bg-amber-500"></span>ซ่อมบำรุง</span>
+        </div>
+      </div>
+      <div class="flex h-[420px] flex-col">
+        <div class="border-b border-gray-100 p-3">
+          <div class="relative"><i data-lucide="search" class="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-400"></i><input id="overview-map-search" type="search" placeholder="ค้นหาเครื่องบนแผนที่" class="w-full rounded-lg border border-gray-200 py-2 pl-9 pr-3 text-sm outline-none focus:border-blue-400"/></div>
+        </div>
+        <div id="overview-machine-list" class="flex-1 overflow-y-auto p-2"></div>
+        <p id="overview-map-status" class="border-t border-gray-100 px-3 py-2 text-xs text-gray-500"></p>
+      </div>
+    </div>
+  </section>
+  </div>
+
+  {% if is_system_admin %}
   <div id="add-form" class="hidden mb-6 bg-blue-50 border border-blue-200 p-4 rounded-xl">
-    <form id="form-add-machine" method="post" action="/machines/add/" class="grid grid-cols-1 md:grid-cols-5 gap-4 items-end">
+    <form id="form-add-machine" method="post" action="/machines/add/" class="grid grid-cols-1 gap-4 md:grid-cols-4 md:items-start">
       {% csrf_token %}
-      <div><label class="text-xs font-bold text-gray-500 uppercase">Code</label><input type="text" name="code" required placeholder="SR-999" class="w-full p-2 rounded border mt-1"/></div>
-      <div><label class="text-xs font-bold text-gray-500 uppercase">Name</label><input type="text" name="name" required placeholder="Recycle Station X" class="w-full p-2 rounded border mt-1"/></div>
-      <div><label class="text-xs font-bold text-gray-500 uppercase">Location</label><input type="text" name="location" class="w-full p-2 rounded border mt-1"/></div>
-      {% if is_system_admin %}<div><label class="text-xs font-bold text-gray-500 uppercase">Organization</label><select name="organization_id" class="w-full p-2 rounded border mt-1">{% for org in organizations %}<option value="{{ org.id }}">{{ org.name }}</option>{% endfor %}</select></div>{% endif %}
-      <button type="button" onclick="showConfirm('Create machine','Save this machine?','form-add-machine')" class="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700">Save</button>
+      <div>
+        <label class="block text-xs font-bold uppercase text-gray-500">ชื่อเครื่อง</label>
+        <input type="text" name="name" required maxlength="100" placeholder="เช่น เครื่องคัดแยกหน้าอาคาร" class="mt-1 h-11 w-full rounded border px-3"/>
+        <p class="mt-1 text-xs text-gray-500">ระบบจะสร้างรหัสเครื่องให้อัตโนมัติ</p>
+      </div>
+      <div>
+        <label class="block text-xs font-bold uppercase text-gray-500">Serial Number อุปกรณ์</label>
+        <select name="device_serial" required class="mt-1 h-11 w-full rounded border px-3" {% if not available_devices %}disabled{% endif %}><option value="">เลือก Serial Number ที่เตรียมไว้</option>{% for device in available_devices %}<option value="{{ device.serial_number }}">{{ device.serial_number }} - {{ device.model }}</option>{% endfor %}</select>
+        {% if not available_devices %}<p class="mt-1 text-xs text-red-600">กรุณาลงทะเบียน Serial Number ก่อนเพิ่มเครื่อง</p>{% endif %}
+      </div>
+      <div>
+        <label class="block text-xs font-bold uppercase text-gray-500">หน่วยงาน</label>
+        <select name="organization_id" required class="mt-1 h-11 w-full rounded border px-3">{% for org in organizations %}<option value="{{ org.id }}">{{ org.name }}</option>{% endfor %}</select>
+      </div>
+      <div>
+        <span aria-hidden="true" class="hidden text-xs font-bold uppercase md:block md:invisible">การทำงาน</span>
+        <button type="button" onclick="showConfirm('ยืนยันการเพิ่มเครื่อง','บันทึกเครื่องและผูก Serial Number ที่เลือกหรือไม่?','form-add-machine')" class="mt-1 h-11 w-full rounded bg-green-600 px-4 text-white hover:bg-green-700 disabled:cursor-not-allowed disabled:opacity-50" {% if not available_devices %}disabled{% endif %}>บันทึก</button>
+      </div>
     </form>
   </div>
+  {% endif %}
 
   <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
     {% for m in machines %}
-    <div class="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden hover:shadow-md transition-shadow cursor-pointer group" onclick="openDetail('{{ m.id }}','{{ m.code }}','{{ m.name|escapejs }}','{{ m.location|escapejs }}','{{ m.status }}','{{ m.installDate|ddmmyy }}','{{ m.lastUpdate }}','{{ m.capacity }}','{{ m.organization_id }}')">
+    <div id="machine-card-{{ m.id }}" class="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden hover:shadow-md transition-shadow group">
       <div class="h-2" style="background:{{ m.card_color }}"></div>
       <div class="p-4 border-b border-gray-100 flex justify-between items-start">
-        <div><h3 class="font-bold text-lg text-gray-800 group-hover:text-blue-600 transition-colors">{{ m.name }}</h3><p class="text-xs text-gray-500 font-mono bg-gray-100 inline-block px-1 rounded">{{ m.code }}</p>{% if is_system_admin %}<p class="text-xs text-gray-400 mt-1">{{ m.organization_name }}</p>{% endif %}</div>
-        <span class="w-3 h-3 rounded-full mt-1 {% if m.status == 'Online' %}bg-green-500{% else %}bg-red-500{% endif %}"></span>
+        <div><h3 class="font-bold text-lg text-gray-800 group-hover:text-blue-600 transition-colors">{{ m.name }}</h3><p class="text-xs text-gray-500 font-mono bg-gray-100 inline-block px-1 rounded">{{ m.code }}</p>{% if is_system_admin %}<p class="text-xs text-gray-400 mt-1">{{ m.organization_name }}</p><p class="mt-1 flex items-center gap-1 text-xs font-mono {% if m.serial_number %}text-blue-600{% else %}text-red-500{% endif %}"><i data-lucide="cpu" class="h-3 w-3"></i>{{ m.serial_number|default:"ยังไม่ผูก Serial" }}</p>{% endif %}</div>
+        <span class="px-2 py-1 rounded-full text-xs font-bold {% if m.status == 'Online' %}bg-green-100 text-green-700{% else %}bg-red-100 text-red-700{% endif %}">{% if m.status == 'Online' %}เปิด{% else %}ปิด{% endif %}</span>
       </div>
-      <div class="p-4"><p class="text-sm text-gray-600 mb-4 flex items-center gap-1"><i data-lucide="map-pin" class="w-3.5 h-3.5"></i>{{ m.location|default:"-" }}</p>{% include "core/_bin_level.html" with label="Plastic" level=m.plastic color="bg-blue-500" %}{% include "core/_bin_level.html" with label="Glass" level=m.glass color="bg-green-500" %}{% include "core/_bin_level.html" with label="Can" level=m.can color="bg-orange-500" %}</div>
+      <div class="p-4"><p class="text-sm text-gray-600 mb-4 flex items-center gap-1"><i data-lucide="map-pin" class="w-3.5 h-3.5"></i>{{ m.location|default:"ยังไม่ได้ระบุสถานที่" }}</p>{% include "core/_bin_level.html" with label="พลาสติก" level=m.plastic color="bg-blue-500" %}{% include "core/_bin_level.html" with label="แก้ว" level=m.glass color="bg-green-500" %}{% include "core/_bin_level.html" with label="กระป๋อง" level=m.can color="bg-orange-500" %}
+        <div class="mt-4 flex items-center justify-between gap-3 border-t border-gray-100 pt-4">
+          <form id="toggle-{{ m.id }}" method="post" action="/machines/toggle/">{% csrf_token %}<input type="hidden" name="id" value="{{ m.id }}"/></form>
+          <button type="button" onclick="showConfirm('ยืนยันการเปลี่ยนสถานะ','ต้องการ{% if m.status == 'Online' %}ปิด{% else %}เปิด{% endif %}เครื่อง {{ m.code }} หรือไม่?','toggle-{{ m.id }}')" class="relative inline-flex h-7 w-12 items-center rounded-full transition {% if m.status == 'Online' %}bg-green-500{% else %}bg-gray-300{% endif %}" title="เปิด/ปิดเครื่อง"><span class="inline-block h-5 w-5 transform rounded-full bg-white shadow transition {% if m.status == 'Online' %}translate-x-6{% else %}translate-x-1{% endif %}"></span></button>
+          <button type="button" onclick="openDetail('{{ m.id }}','{{ m.code }}','{{ m.name|escapejs }}','{{ m.location|escapejs }}','{{ m.status }}','{{ m.installDate|ddmmyy }}','{{ m.lastUpdate }}','{{ m.latitude }}','{{ m.longitude }}','{{ m.organization_id }}','{{ m.serial_number }}')" class="flex items-center gap-2 px-3 py-2 rounded-lg accent-soft text-sm font-medium"><i data-lucide="edit" class="w-4 h-4"></i>รายละเอียด/แก้ไข</button>
+        </div>
+      </div>
     </div>
-    {% empty %}<p class="col-span-4 text-center py-12 text-gray-400">No machines found.</p>{% endfor %}
+    {% empty %}<p class="col-span-4 text-center py-12 text-gray-400">ไม่พบเครื่อง</p>{% endfor %}
+  </div>
+  <div class="mt-6 overflow-hidden rounded-xl border border-gray-200 shadow-sm">
+    {% include "core/_pagination.html" with pagination=machines_pagination %}
   </div>
 </div>
 
 <div id="detail-modal" class="hidden fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm p-4">
   <div class="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden animate-fadein">
-    <div class="p-6 border-b border-gray-100 flex justify-between items-center bg-gray-50"><h2 class="text-xl font-bold text-gray-800">Machine detail</h2><button onclick="closeDetail()" class="text-gray-400 hover:text-gray-600"><i data-lucide="x" class="w-6 h-6"></i></button></div>
-    <div id="detail-view" class="p-6 space-y-4"><div class="flex justify-between"><div><p class="text-xs text-gray-400 uppercase">Code</p><p id="d-code" class="font-bold text-lg"></p></div><div class="text-right"><p class="text-xs text-gray-400 uppercase">Status</p><span id="d-status-badge"></span></div></div><div><p class="text-xs text-gray-400 uppercase">Name</p><p id="d-name" class="font-medium"></p></div><div><p class="text-xs text-gray-400 uppercase">Location</p><p id="d-location" class="font-medium"></p></div><div class="grid grid-cols-2 gap-4"><div><p class="text-xs text-gray-400 uppercase">Installed</p><p id="d-install" class="font-medium"></p></div><div><p class="text-xs text-gray-400 uppercase">Updated</p><p id="d-update" class="font-medium"></p></div></div></div>
-    <div id="detail-edit" class="hidden p-6"><form id="form-edit-machine" method="post" action="/machines/edit/" class="space-y-4">{% csrf_token %}<input type="hidden" name="id" id="edit-id"/><div><label class="text-sm font-bold text-gray-600">Name</label><input type="text" name="name" id="edit-name" class="w-full p-2 border rounded mt-1"/></div><div><label class="text-sm font-bold text-gray-600">Location</label><input type="text" name="location" id="edit-location" class="w-full p-2 border rounded mt-1"/></div><div><label class="text-sm font-bold text-gray-600">Capacity</label><input type="text" name="capacity" id="edit-capacity" class="w-full p-2 border rounded mt-1"/></div>{% if is_system_admin %}<div><label class="text-sm font-bold text-gray-600">Organization</label><select name="organization_id" id="edit-organization" class="w-full p-2 border rounded mt-1">{% for org in organizations %}<option value="{{ org.id }}">{{ org.name }}</option>{% endfor %}</select></div>{% endif %}</form></div>
-    <div class="p-6 border-t border-gray-100 flex justify-end gap-3 bg-gray-50"><div id="btn-view-mode"><button onclick="switchToEdit()" class="px-4 py-2 bg-blue-100 text-blue-700 rounded-lg hover:bg-blue-200 flex items-center gap-2"><i data-lucide="edit" class="w-4 h-4"></i>Edit</button></div><div id="btn-edit-mode" class="hidden flex gap-3"><button onclick="switchToView()" class="px-4 py-2 text-gray-600 hover:bg-gray-200 rounded-lg">Cancel</button><button type="button" onclick="showConfirm('Update machine','Save changes?','form-edit-machine')" class="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700">Save</button></div></div>
+    <div class="p-6 border-b border-gray-100 flex justify-between items-center bg-gray-50"><h2 class="text-xl font-bold text-gray-800">รายละเอียดเครื่อง</h2><button onclick="closeDetail()" class="text-gray-400 hover:text-gray-600"><i data-lucide="x" class="w-6 h-6"></i></button></div>
+    <div class="max-h-[80vh] overflow-y-auto">
+      <div id="detail-view" class="p-6 space-y-4">
+        <div class="flex justify-between"><div><p class="text-xs text-gray-400 uppercase">รหัสเครื่อง</p><p id="d-code" class="font-bold text-lg"></p></div><div class="text-right"><p class="text-xs text-gray-400 uppercase">สถานะ</p><span id="d-status-badge"></span></div></div>
+        <div><p class="text-xs text-gray-400 uppercase">ชื่อเครื่อง</p><p id="d-name" class="font-medium"></p></div>
+        <div><p class="text-xs text-gray-400 uppercase">Serial Number อุปกรณ์</p><p id="d-serial-number" class="font-mono font-semibold text-blue-700"></p></div>
+        <div><p class="text-xs text-gray-400 uppercase">สถานที่</p><p id="d-location" class="font-medium"></p></div>
+        <div><p class="text-xs text-gray-400 uppercase">พิกัด</p><p id="d-coordinates" class="font-mono text-sm font-medium"></p></div>
+        <div class="grid grid-cols-2 gap-4"><div><p class="text-xs text-gray-400 uppercase">ติดตั้ง</p><p id="d-install" class="font-medium"></p></div><div><p class="text-xs text-gray-400 uppercase">อัปเดตล่าสุด</p><p id="d-update" class="font-medium"></p></div></div>
+      </div>
+      <div id="detail-edit" class="hidden p-6">
+        <form id="form-edit-machine" method="post" action="/machines/edit/" class="space-y-4">
+          {% csrf_token %}<input type="hidden" name="id" id="edit-id"/>
+          {% if is_system_admin %}<div><label class="text-sm font-bold text-gray-600">รหัสเครื่อง</label><input type="text" name="code" id="edit-code" class="w-full p-2 border rounded mt-1"/></div><div><label class="text-sm font-bold text-gray-600">Serial Number อุปกรณ์</label><select name="device_serial" id="edit-device-serial" class="w-full p-2 border rounded mt-1"><option value="">ยังไม่ผูก Serial Number</option>{% for device in device_rows %}<option value="{{ device.serial_number }}" data-machine-id="{{ device.machine_id }}" data-hardware-status="{{ device.hardware_status }}">{{ device.serial_number }} - {{ device.model }}{% if device.machine_code %} ({{ device.machine_code }}){% endif %}</option>{% endfor %}</select><p class="mt-1 text-xs text-gray-400">เลือกได้เฉพาะ Serial Number ที่พร้อมใช้งานหรือของเครื่องนี้</p></div>{% endif %}
+          <div><label class="text-sm font-bold text-gray-600">ชื่อเครื่อง</label><input type="text" name="name" id="edit-name" class="w-full p-2 border rounded mt-1"/></div>
+          <div><label class="text-sm font-bold text-gray-600">สถานที่</label><input type="text" name="location" id="edit-location" placeholder="เช่น อาคาร A ชั้น 1" class="w-full p-2 border rounded mt-1"/></div>
+          <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <div><label class="text-sm font-bold text-gray-600">ละติจูด</label><input type="number" name="latitude" id="edit-latitude" min="-90" max="90" step="0.000001" placeholder="13.756300" class="w-full p-2 border rounded mt-1 font-mono"/></div>
+            <div><label class="text-sm font-bold text-gray-600">ลองจิจูด</label><input type="number" name="longitude" id="edit-longitude" min="-180" max="180" step="0.000001" placeholder="100.501800" class="w-full p-2 border rounded mt-1 font-mono"/></div>
+          </div>
+          {% if is_system_admin %}<div><label class="text-sm font-bold text-gray-600">หน่วยงาน</label><select name="organization_id" id="edit-organization" class="w-full p-2 border rounded mt-1">{% for org in organizations %}<option value="{{ org.id }}">{{ org.name }}</option>{% endfor %}</select></div>{% else %}<p class="text-xs text-gray-400">แอดมินหน่วยงานแก้ไขรหัสเครื่องและหน่วยงานไม่ได้</p>{% endif %}
+        </form>
+      </div>
+      <div class="border-t border-gray-100 px-6 pb-6 pt-5">
+        <div class="mb-3 flex flex-wrap items-center justify-between gap-3">
+          <div><h3 class="font-bold text-gray-700">ตำแหน่งบนแผนที่</h3><p id="map-help" class="text-xs text-gray-500">ตำแหน่งที่บันทึกไว้ของเครื่อง</p></div>
+          <button id="btn-current-location" type="button" onclick="useCurrentLocation()" class="hidden items-center gap-2 rounded-lg bg-blue-50 px-3 py-2 text-sm font-medium text-blue-700 hover:bg-blue-100"><i data-lucide="locate-fixed" class="h-4 w-4"></i><span>ใช้ตำแหน่งปัจจุบัน</span></button>
+        </div>
+        <div id="machine-map" class="h-64 w-full overflow-hidden rounded-xl border border-gray-200 bg-gray-100"></div>
+        <p id="map-status" class="mt-2 text-xs text-gray-500"></p>
+      </div>
+    </div>
+    <div class="p-6 border-t border-gray-100 flex justify-end gap-3 bg-gray-50"><div id="btn-view-mode"><button onclick="switchToEdit()" class="px-4 py-2 accent-soft rounded-lg flex items-center gap-2"><i data-lucide="edit" class="w-4 h-4"></i>แก้ไข</button></div><div id="btn-edit-mode" class="hidden flex gap-3"><button onclick="switchToView()" class="px-4 py-2 text-gray-600 hover:bg-gray-200 rounded-lg">ยกเลิก</button><button type="button" onclick="showConfirm('ยืนยันการแก้ไข','ต้องการบันทึกข้อมูลเครื่องนี้หรือไม่?','form-edit-machine')" class="px-4 py-2 text-white rounded-lg accent-bg">บันทึก</button></div></div>
   </div>
 </div>
+{{ machine_map_data|json_script:"machine-overview-data" }}
 <script>
-lucide.createIcons();let currentMachine={};
-function openDetail(id,code,name,location,status,installDate,lastUpdate,capacity,organizationId){currentMachine={id,code,name,location,status,installDate,lastUpdate,capacity,organizationId};document.getElementById('d-code').textContent=code;document.getElementById('d-name').textContent=name;document.getElementById('d-location').textContent=location;document.getElementById('d-install').textContent=installDate;document.getElementById('d-update').textContent=lastUpdate;const badge=document.getElementById('d-status-badge');badge.textContent=status;badge.className='px-2 py-1 rounded text-xs font-bold '+(status==='Online'?'bg-green-100 text-green-700':'bg-red-100 text-red-700');switchToView();document.getElementById('detail-modal').classList.remove('hidden')}
-function closeDetail(){document.getElementById('detail-modal').classList.add('hidden')}function switchToEdit(){document.getElementById('detail-view').classList.add('hidden');document.getElementById('detail-edit').classList.remove('hidden');document.getElementById('btn-view-mode').classList.add('hidden');document.getElementById('btn-edit-mode').classList.remove('hidden');document.getElementById('edit-id').value=currentMachine.id;document.getElementById('edit-name').value=currentMachine.name;document.getElementById('edit-location').value=currentMachine.location;document.getElementById('edit-capacity').value=currentMachine.capacity;const org=document.getElementById('edit-organization');if(org)org.value=currentMachine.organizationId}function switchToView(){document.getElementById('detail-view').classList.remove('hidden');document.getElementById('detail-edit').classList.add('hidden');document.getElementById('btn-view-mode').classList.remove('hidden');document.getElementById('btn-edit-mode').classList.add('hidden')}
+lucide.createIcons();
+
+const defaultMapCenter = [13.7563, 100.5018];
+const overviewMachines = JSON.parse(document.getElementById('machine-overview-data')?.textContent || '[]');
+const overviewMarkers = new Map();
+let overviewMap = null;
+let overviewLayer = null;
+let overviewFilter = 'All';
+let currentMachine = {};
+let machineMap = null;
+let machineMarker = null;
+let isEditMode = false;
+
+function overviewCoordinates(machine) {
+  const latitude = Number.parseFloat(machine.latitude);
+  const longitude = Number.parseFloat(machine.longitude);
+  return Number.isFinite(latitude) && Number.isFinite(longitude)
+    ? [latitude, longitude]
+    : null;
+}
+
+function overviewStatusColor(status) {
+  if (status === 'Online') return '#22c55e';
+  if (status === 'Maintenance') return '#f59e0b';
+  return '#ef4444';
+}
+
+function overviewStatusLabel(status) {
+  if (status === 'Online') return 'ออนไลน์';
+  if (status === 'Maintenance') return 'ซ่อมบำรุง';
+  return 'ออฟไลน์';
+}
+
+function ensureOverviewMap() {
+  if (overviewMap || !window.L) return overviewMap;
+  overviewMap = L.map('machine-overview-map', {scrollWheelZoom: false}).setView(defaultMapCenter, 6);
+  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 19,
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+  }).addTo(overviewMap);
+  overviewLayer = L.layerGroup().addTo(overviewMap);
+  return overviewMap;
+}
+
+function buildOverviewPopup(machine) {
+  const wrapper = document.createElement('div');
+  wrapper.className = 'box-border w-full';
+  const title = document.createElement('div');
+  title.className = 'font-bold text-gray-800';
+  title.textContent = machine.name;
+  const meta = document.createElement('div');
+  meta.className = 'mt-1 text-xs text-gray-500';
+  meta.textContent = `${machine.code} · ${machine.location || 'ยังไม่ได้ระบุสถานที่'}`;
+  const status = document.createElement('div');
+  status.className = 'mt-2 text-xs font-semibold';
+  status.style.color = overviewStatusColor(machine.status);
+  status.textContent = overviewStatusLabel(machine.status);
+  const button = document.createElement('button');
+  button.type = 'button';
+  button.className = 'mt-3 w-full rounded-md bg-blue-50 px-2 py-1.5 text-xs font-semibold text-blue-700';
+  button.textContent = 'ดูการ์ดเครื่อง';
+  button.addEventListener('click', () => scrollToMachineCard(machine.id));
+  wrapper.append(title, meta, status, button);
+  return wrapper;
+}
+
+function overviewFilteredMachines() {
+  const query = (document.getElementById('overview-map-search')?.value || '').trim().toLocaleLowerCase('th');
+  return overviewMachines.filter(machine => {
+    const matchesStatus = overviewFilter === 'All' || machine.status === overviewFilter;
+    const searchable = `${machine.code} ${machine.name} ${machine.location || ''} ${machine.organization_name || ''}`.toLocaleLowerCase('th');
+    return matchesStatus && (!query || searchable.includes(query));
+  });
+}
+
+function scrollToMachineCard(machineId) {
+  const card = document.getElementById(`machine-card-${machineId}`);
+  if (!card) {
+    const machine = overviewMachines.find(item => item.id === machineId);
+    if (!machine) return;
+    const url = new URL(window.location.href);
+    url.searchParams.set('search', machine.code);
+    url.searchParams.set('status', 'All');
+    url.searchParams.set('organization', 'All');
+    url.searchParams.set('page', '1');
+    window.location.assign(url.toString());
+    return;
+  }
+  closeOverviewMapModal();
+  window.setTimeout(() => {
+    card.scrollIntoView({behavior: 'smooth', block: 'center'});
+    card.classList.add('ring-4', 'ring-blue-300');
+    window.setTimeout(() => card.classList.remove('ring-4', 'ring-blue-300'), 1800);
+  }, 120);
+}
+
+function focusOverviewMachine(machineId) {
+  const machine = overviewMachines.find(item => item.id === machineId);
+  if (!machine) return;
+  const coordinates = overviewCoordinates(machine);
+  const marker = overviewMarkers.get(machineId);
+  if (coordinates && marker && overviewMap) {
+    overviewMap.flyTo(coordinates, 16, {duration: 0.7});
+    marker.openPopup();
+    return;
+  }
+  scrollToMachineCard(machineId);
+}
+
+function renderOverviewList(machines) {
+  const list = document.getElementById('overview-machine-list');
+  list.replaceChildren();
+  if (!machines.length) {
+    const empty = document.createElement('p');
+    empty.className = 'p-6 text-center text-sm text-gray-400';
+    empty.textContent = 'ไม่พบเครื่องตามตัวกรอง';
+    list.appendChild(empty);
+    return;
+  }
+  machines.forEach(machine => {
+    const coordinates = overviewCoordinates(machine);
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'mb-1 flex w-full items-start gap-3 rounded-lg p-3 text-left transition hover:bg-gray-50';
+    button.addEventListener('click', () => focusOverviewMachine(machine.id));
+    const dot = document.createElement('span');
+    dot.className = 'mt-1.5 h-2.5 w-2.5 shrink-0 rounded-full';
+    dot.style.backgroundColor = overviewStatusColor(machine.status);
+    const body = document.createElement('span');
+    body.className = 'min-w-0 flex-1';
+    const name = document.createElement('span');
+    name.className = 'block truncate text-sm font-semibold text-gray-800';
+    name.textContent = machine.name;
+    const meta = document.createElement('span');
+    meta.className = 'mt-0.5 block truncate text-xs text-gray-500';
+    meta.textContent = `${machine.code} · ${machine.location || 'ยังไม่ได้ระบุสถานที่'}`;
+    const coordinateState = document.createElement('span');
+    coordinateState.className = `mt-1 block text-xs ${coordinates ? 'text-blue-600' : 'text-amber-600'}`;
+    coordinateState.textContent = coordinates ? 'ดูตำแหน่งบนแผนที่' : 'ยังไม่ได้กำหนดพิกัด';
+    body.append(name, meta, coordinateState);
+    button.append(dot, body);
+    list.appendChild(button);
+  });
+}
+
+function renderOverviewMap() {
+  const map = ensureOverviewMap();
+  const machines = overviewFilteredMachines();
+  renderOverviewList(machines);
+  if (!map || !overviewLayer) {
+    document.getElementById('overview-map-status').textContent = 'ไม่สามารถโหลดแผนที่ได้ กรุณาตรวจสอบการเชื่อมต่ออินเทอร์เน็ต';
+    return;
+  }
+  overviewLayer.clearLayers();
+  overviewMarkers.clear();
+  const bounds = [];
+  machines.forEach(machine => {
+    const coordinates = overviewCoordinates(machine);
+    if (!coordinates) return;
+    const color = overviewStatusColor(machine.status);
+    const marker = L.circleMarker(coordinates, {
+      radius: 9,
+      color: '#ffffff',
+      weight: 3,
+      fillColor: color,
+      fillOpacity: 1,
+    }).bindPopup(buildOverviewPopup(machine), {
+      className: 'machine-overview-popup',
+      minWidth: 190,
+      maxWidth: 240,
+    });
+    marker.addTo(overviewLayer);
+    overviewMarkers.set(machine.id, marker);
+    bounds.push(coordinates);
+  });
+  if (bounds.length === 1) map.setView(bounds[0], 15);
+  else if (bounds.length > 1) map.fitBounds(bounds, {padding: [35, 35], maxZoom: 15});
+  else map.setView(defaultMapCenter, 6);
+  const missingCoordinates = machines.length - bounds.length;
+  document.getElementById('overview-map-status').textContent = missingCoordinates
+    ? `แสดงบนแผนที่ ${bounds.length} เครื่อง · ยังไม่มีพิกัด ${missingCoordinates} เครื่อง`
+    : `แสดงบนแผนที่ ${bounds.length} เครื่อง`;
+}
+
+function setOverviewFilter(status) {
+  overviewFilter = status;
+  document.querySelectorAll('.overview-filter').forEach(button => {
+    const active = button.dataset.overviewFilter === status;
+    button.classList.toggle('bg-gray-800', active);
+    button.classList.toggle('text-white', active);
+    button.classList.toggle('bg-gray-100', !active);
+    button.classList.toggle('text-gray-600', !active);
+  });
+  renderOverviewMap();
+}
+
+function openOverviewMapModal() {
+  const modal = document.getElementById('overview-map-modal');
+  modal.classList.remove('hidden');
+  document.body.classList.add('overflow-hidden');
+  window.setTimeout(() => {
+    ensureOverviewMap()?.invalidateSize();
+    renderOverviewMap();
+    document.getElementById('overview-map-close').focus();
+  }, 0);
+}
+
+function closeOverviewMapModal() {
+  document.getElementById('overview-map-modal').classList.add('hidden');
+  document.body.classList.remove('overflow-hidden');
+}
+
+const overviewLocatedCount = overviewMachines.filter(machine => overviewCoordinates(machine)).length;
+document.getElementById('overview-coordinate-count').textContent = `มีพิกัด ${overviewLocatedCount}/${overviewMachines.length} เครื่อง`;
+document.getElementById('overview-map-search').addEventListener('input', renderOverviewMap);
+document.addEventListener('keydown', event => {
+  const modal = document.getElementById('overview-map-modal');
+  if (event.key === 'Escape' && !modal.classList.contains('hidden')) closeOverviewMapModal();
+});
+
+function coordinateNumber(value) {
+  const number = Number.parseFloat(value);
+  return Number.isFinite(number) ? number : null;
+}
+
+function ensureMachineMap() {
+  if (machineMap || !window.L) return machineMap;
+  machineMap = L.map('machine-map').setView(defaultMapCenter, 6);
+  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 19,
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
+  }).addTo(machineMap);
+  machineMap.on('click', event => {
+    if (!isEditMode) return;
+    setCoordinateInputs(event.latlng.lat, event.latlng.lng, true);
+    setMapStatus('เลือกพิกัดจากแผนที่แล้ว กดบันทึกเพื่อยืนยัน', false);
+  });
+  return machineMap;
+}
+
+function setMapStatus(message, isError) {
+  const status = document.getElementById('map-status');
+  status.textContent = message;
+  status.className = `mt-2 text-xs ${isError ? 'text-red-600' : 'text-gray-500'}`;
+}
+
+function showMapPosition(latitude, longitude, zoom = 17) {
+  const map = ensureMachineMap();
+  if (!map) {
+    setMapStatus('ไม่สามารถโหลดแผนที่ได้ กรุณาตรวจสอบการเชื่อมต่ออินเทอร์เน็ต', true);
+    return;
+  }
+  if (machineMarker) {
+    machineMarker.remove();
+    machineMarker = null;
+  }
+  if (latitude === null || longitude === null) {
+    map.setView(defaultMapCenter, 6);
+    return;
+  }
+  machineMarker = L.marker([latitude, longitude]).addTo(map);
+  map.setView([latitude, longitude], zoom);
+}
+
+function setCoordinateInputs(latitude, longitude, moveMap) {
+  const formattedLatitude = Number(latitude).toFixed(6);
+  const formattedLongitude = Number(longitude).toFixed(6);
+  document.getElementById('edit-latitude').value = formattedLatitude;
+  document.getElementById('edit-longitude').value = formattedLongitude;
+  if (moveMap) showMapPosition(Number(formattedLatitude), Number(formattedLongitude));
+}
+
+function showSavedPosition() {
+  const latitude = coordinateNumber(currentMachine.latitude);
+  const longitude = coordinateNumber(currentMachine.longitude);
+  const coordinateLabel = document.getElementById('d-coordinates');
+  if (latitude === null || longitude === null) {
+    coordinateLabel.textContent = 'ยังไม่ได้กำหนดพิกัด';
+    document.getElementById('map-help').textContent = 'เครื่องนี้ยังไม่ได้กำหนดพิกัด';
+    showMapPosition(null, null);
+    setMapStatus('กด “แก้ไข” แล้วเลือกตำแหน่งบนแผนที่ หรือใช้ตำแหน่งปัจจุบัน', false);
+    return;
+  }
+  coordinateLabel.textContent = `${latitude.toFixed(6)}, ${longitude.toFixed(6)}`;
+  document.getElementById('map-help').textContent = 'ตำแหน่งที่บันทึกไว้ของเครื่อง';
+  showMapPosition(latitude, longitude);
+  setMapStatus(`ละติจูด ${latitude.toFixed(6)} · ลองจิจูด ${longitude.toFixed(6)}`, false);
+}
+
+function openDetail(id, code, name, location, status, installDate, lastUpdate, latitude, longitude, organizationId, serialNumber) {
+  currentMachine = {id, code, name, location, status, installDate, lastUpdate, latitude, longitude, organizationId, serialNumber};
+  document.getElementById('d-code').textContent = code;
+  document.getElementById('d-name').textContent = name;
+  document.getElementById('d-serial-number').textContent = serialNumber || 'ยังไม่ได้ผูก Serial Number';
+  document.getElementById('d-location').textContent = location || 'ยังไม่ได้ระบุสถานที่';
+  document.getElementById('d-install').textContent = installDate;
+  document.getElementById('d-update').textContent = lastUpdate;
+  const badge = document.getElementById('d-status-badge');
+  badge.textContent = status === 'Online' ? 'เปิดใช้งาน' : 'ปิดใช้งาน';
+  badge.className = 'px-2 py-1 rounded text-xs font-bold ' + (status === 'Online' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700');
+  switchToView();
+  document.getElementById('detail-modal').classList.remove('hidden');
+  setTimeout(() => {
+    ensureMachineMap()?.invalidateSize();
+    showSavedPosition();
+  }, 0);
+}
+
+function closeDetail() {
+  document.getElementById('detail-modal').classList.add('hidden');
+}
+
+function switchToEdit() {
+  isEditMode = true;
+  document.getElementById('detail-view').classList.add('hidden');
+  document.getElementById('detail-edit').classList.remove('hidden');
+  document.getElementById('btn-view-mode').classList.add('hidden');
+  document.getElementById('btn-edit-mode').classList.remove('hidden');
+  const locationButton = document.getElementById('btn-current-location');
+  locationButton.classList.remove('hidden');
+  locationButton.classList.add('flex');
+  document.getElementById('map-help').textContent = 'คลิกบนแผนที่ หรือใช้ตำแหน่งปัจจุบันของอุปกรณ์';
+  document.getElementById('edit-id').value = currentMachine.id;
+  const code = document.getElementById('edit-code');
+  if (code) code.value = currentMachine.code;
+  document.getElementById('edit-name').value = currentMachine.name;
+  document.getElementById('edit-location').value = currentMachine.location;
+  document.getElementById('edit-latitude').value = currentMachine.latitude;
+  document.getElementById('edit-longitude').value = currentMachine.longitude;
+  const organization = document.getElementById('edit-organization');
+  if (organization) organization.value = currentMachine.organizationId;
+  const deviceSelect = document.getElementById('edit-device-serial');
+  if (deviceSelect) {
+    Array.from(deviceSelect.options).forEach(option => {
+      const assignedMachineId = option.dataset.machineId || '';
+      const hardwareStatus = option.dataset.hardwareStatus || '';
+      const assignedToAnotherMachine = assignedMachineId && assignedMachineId !== currentMachine.id;
+      const unavailableStatus = hardwareStatus && hardwareStatus !== 'Available' && assignedMachineId !== currentMachine.id;
+      option.disabled = Boolean(assignedToAnotherMachine || unavailableStatus);
+    });
+    deviceSelect.value = currentMachine.serialNumber || '';
+  }
+  showMapPosition(coordinateNumber(currentMachine.latitude), coordinateNumber(currentMachine.longitude));
+  setMapStatus('เลือกตำแหน่งบนแผนที่ หรือกดปุ่มใช้ตำแหน่งปัจจุบัน', false);
+  setTimeout(() => ensureMachineMap()?.invalidateSize(), 0);
+}
+
+function switchToView() {
+  isEditMode = false;
+  document.getElementById('detail-view').classList.remove('hidden');
+  document.getElementById('detail-edit').classList.add('hidden');
+  document.getElementById('btn-view-mode').classList.remove('hidden');
+  document.getElementById('btn-edit-mode').classList.add('hidden');
+  const locationButton = document.getElementById('btn-current-location');
+  locationButton.classList.add('hidden');
+  locationButton.classList.remove('flex');
+  if (currentMachine.id) showSavedPosition();
+}
+
+function useCurrentLocation() {
+  if (!navigator.geolocation) {
+    setMapStatus('เบราว์เซอร์นี้ไม่รองรับการอ่านตำแหน่งปัจจุบัน', true);
+    return;
+  }
+  const button = document.getElementById('btn-current-location');
+  button.disabled = true;
+  button.classList.add('opacity-60');
+  setMapStatus('กำลังค้นหาตำแหน่งปัจจุบัน…', false);
+  navigator.geolocation.getCurrentPosition(
+    position => {
+      setCoordinateInputs(position.coords.latitude, position.coords.longitude, true);
+      setMapStatus(`พบตำแหน่งแล้ว (ความแม่นยำประมาณ ${Math.round(position.coords.accuracy)} เมตร) กดบันทึกเพื่อยืนยัน`, false);
+      button.disabled = false;
+      button.classList.remove('opacity-60');
+    },
+    error => {
+      const messages = {
+        1: 'ไม่ได้รับอนุญาตให้เข้าถึงตำแหน่ง กรุณาอนุญาต Location และเปิดผ่าน HTTPS หรือ localhost',
+        2: 'ไม่สามารถระบุตำแหน่งปัจจุบันได้',
+        3: 'ค้นหาตำแหน่งนานเกินกำหนด กรุณาลองใหม่',
+      };
+      setMapStatus(messages[error.code] || 'เกิดข้อผิดพลาดขณะค้นหาตำแหน่ง', true);
+      button.disabled = false;
+      button.classList.remove('opacity-60');
+    },
+    {enableHighAccuracy: true, timeout: 15000, maximumAge: 0},
+  );
+}
+
+function syncMapFromInputs() {
+  const latitude = coordinateNumber(document.getElementById('edit-latitude').value);
+  const longitude = coordinateNumber(document.getElementById('edit-longitude').value);
+  if (latitude !== null && longitude !== null) {
+    showMapPosition(latitude, longitude);
+    setMapStatus('ปรับพิกัดด้วยตัวเลขแล้ว กดบันทึกเพื่อยืนยัน', false);
+  }
+}
+
+document.getElementById('edit-latitude').addEventListener('change', syncMapFromInputs);
+document.getElementById('edit-longitude').addEventListener('change', syncMapFromInputs);
+
+function toggleDeviceKeyInput() {
+  const input = document.getElementById('new-device-api-key');
+  input.type = input.type === 'password' ? 'text' : 'password';
+}
+
+async function copyDeviceKey() {
+  const serial = document.getElementById('created-device-serial')?.textContent.trim() || '';
+  const key = document.getElementById('created-device-key')?.textContent.trim() || '';
+  const text = `device_id=${serial}\nX-Device-Key=${key}`;
+  try {
+    await navigator.clipboard.writeText(text);
+    alert('คัดลอก Serial Number และ API Key แล้ว');
+  } catch (_) {
+    prompt('คัดลอกข้อมูลสำหรับ ESP32', text);
+  }
+}
 </script>
 {% endblock %}

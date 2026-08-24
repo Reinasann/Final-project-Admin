@@ -1,7 +1,7 @@
 {% with is_active=active_tab|stringformat:"s" tab_name=tab|stringformat:"s" %}
 <a href="{{ url }}"
-   class="w-full flex items-center justify-between p-3 rounded-lg transition-colors mb-1
-          {% if active_tab == tab %}bg-blue-50 text-blue-700 font-medium{% else %}text-gray-600 hover:bg-gray-50{% endif %}">
+   class="w-full flex items-center justify-between p-3 rounded-lg transition-colors mb-1 {% if active_tab == tab %}font-medium{% endif %}"
+   style="{% if active_tab == tab %}background:var(--accent-soft);color:var(--accent);{% elif is_system_admin %}color:#4b5563;{% else %}color:#d1fae5;{% endif %}">
   <div class="flex items-center gap-3">
     <i data-lucide="{{ icon }}" class="w-5 h-5 shrink-0"></i>
     <span class="nav-label">{{ label }}</span>

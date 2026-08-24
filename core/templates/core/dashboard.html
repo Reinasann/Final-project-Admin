@@ -1,65 +1,33 @@
 {% extends "core/base.html" %}
 {% block content %}
 <div class="p-6 space-y-6">
-
-  <header class="flex justify-between items-center mb-6">
-    <div>
-      <h1 class="text-2xl font-bold text-gray-800">ภาพรวมระบบ</h1>
-      <p class="text-gray-500">ภาพรวมระบบจัดการขยะรีไซเคิล</p>
-    </div>
-    <div class="flex items-center gap-2 text-sm text-gray-500 bg-white px-3 py-1 rounded-lg border">
-      <i data-lucide="calendar" class="w-4 h-4"></i><span>วันนี้</span>
-    </div>
+  <header class="text-center mb-6">
+    <h1 class="text-3xl font-bold text-gray-800">ภาพรวม</h1>
   </header>
 
-  <!-- Stats cards -->
-  <section>
-    <h2 class="text-lg font-semibold text-gray-700 mb-3 flex items-center gap-2">
-      <i data-lucide="activity" class="w-5 h-5 text-blue-600"></i> ภาพรวมระบบ
-    </h2>
-    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-
-      <div class="bg-white p-5 rounded-xl border border-gray-100 shadow-sm hover:shadow-md transition-shadow">
-        <div class="flex justify-between items-start mb-4">
-          <div class="p-2 rounded-lg bg-green-100 text-green-600"><i data-lucide="trash-2" class="w-6 h-6"></i></div>
-          <span class="text-xs font-bold px-2 py-1 rounded-full flex items-center gap-1 bg-green-50 text-green-600">
-            <i data-lucide="arrow-up-right" class="w-3 h-3"></i>+12% from yesterday
-          </span>
-        </div>
-        <p class="text-gray-500 text-sm font-medium mb-1">ขยะที่เก็บได้วันนี้</p>
-        <div class="flex items-baseline gap-1"><h3 class="text-3xl font-bold text-gray-800">1,245</h3><span class="text-sm text-gray-400">kg</span></div>
-      </div>
-
-      <div class="bg-white p-5 rounded-xl border border-gray-100 shadow-sm hover:shadow-md transition-shadow">
-        <div class="flex justify-between items-start mb-4">
-          <div class="p-2 rounded-lg bg-blue-100 text-blue-600"><i data-lucide="monitor-play" class="w-6 h-6"></i></div>
-          <span class="text-xs font-bold px-2 py-1 rounded-full bg-green-50 text-green-600">Good</span>
-        </div>
-        <p class="text-gray-500 text-sm font-medium mb-1">เครื่องออนไลน์</p>
-        <div class="flex items-baseline gap-1"><h3 class="text-3xl font-bold text-gray-800">{{ online_count }}/{{ total_machines }}</h3><span class="text-sm text-gray-400">Machines</span></div>
-      </div>
-
-      <div class="bg-white p-5 rounded-xl border border-gray-100 shadow-sm hover:shadow-md transition-shadow">
-        <div class="flex justify-between items-start mb-4">
-          <div class="p-2 rounded-lg bg-purple-100 text-purple-600"><i data-lucide="users" class="w-6 h-6"></i></div>
-        </div>
-        <p class="text-gray-500 text-sm font-medium mb-1">เจ้าหน้าที่ (Active)</p>
-        <div class="flex items-baseline gap-1"><h3 class="text-3xl font-bold text-gray-800">{{ active_users }}</h3><span class="text-sm text-gray-400">Users</span></div>
-      </div>
-
-      <div class="bg-white p-5 rounded-xl border border-gray-100 shadow-sm hover:shadow-md transition-shadow">
-        <div class="flex justify-between items-start mb-4">
-          <div class="p-2 rounded-lg bg-red-100 text-red-600"><i data-lucide="wrench" class="w-6 h-6"></i></div>
-          <span class="text-xs font-bold px-2 py-1 rounded-full bg-red-50 text-red-600">Action</span>
-        </div>
-        <p class="text-gray-500 text-sm font-medium mb-1">แจ้งซ่อมใหม่</p>
-        <div class="flex items-baseline gap-1"><h3 class="text-3xl font-bold text-gray-800">{{ new_issues }}</h3><span class="text-sm text-gray-400">Issues</span></div>
-      </div>
-
+  <section class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+    <div class="bg-white p-5 rounded-xl border border-gray-100 shadow-sm">
+      <div class="p-2 rounded-lg bg-green-100 text-green-600 w-fit mb-4"><i data-lucide="trash-2" class="w-6 h-6"></i></div>
+      <p class="text-gray-500 text-sm font-medium mb-1">ขยะที่เก็บได้วันนี้</p>
+      <div class="flex items-baseline gap-1"><h3 class="text-3xl font-bold text-gray-800">{{ today_weight }}</h3><span class="text-sm text-gray-400">กก.</span></div>
+    </div>
+    <div class="bg-white p-5 rounded-xl border border-gray-100 shadow-sm">
+      <div class="p-2 rounded-lg bg-blue-100 text-blue-600 w-fit mb-4"><i data-lucide="monitor-play" class="w-6 h-6"></i></div>
+      <p class="text-gray-500 text-sm font-medium mb-1">เครื่องที่เปิดใช้งาน</p>
+      <div class="flex items-baseline gap-1"><h3 class="text-3xl font-bold text-gray-800">{{ online_count }}/{{ total_machines }}</h3><span class="text-sm text-gray-400">เครื่อง</span></div>
+    </div>
+    <div class="bg-white p-5 rounded-xl border border-gray-100 shadow-sm">
+      <div class="p-2 rounded-lg bg-teal-100 text-teal-600 w-fit mb-4"><i data-lucide="users" class="w-6 h-6"></i></div>
+      <p class="text-gray-500 text-sm font-medium mb-1">ผู้ใช้งานที่ใช้งานอยู่</p>
+      <div class="flex items-baseline gap-1"><h3 class="text-3xl font-bold text-gray-800">{{ active_users }}</h3><span class="text-sm text-gray-400">คน</span></div>
+    </div>
+    <div class="bg-white p-5 rounded-xl border border-gray-100 shadow-sm">
+      <div class="p-2 rounded-lg bg-red-100 text-red-600 w-fit mb-4"><i data-lucide="wrench" class="w-6 h-6"></i></div>
+      <p class="text-gray-500 text-sm font-medium mb-1">แจ้งซ่อมใหม่</p>
+      <div class="flex items-baseline gap-1"><h3 class="text-3xl font-bold text-gray-800">{{ new_issues }}</h3><span class="text-sm text-gray-400">รายการ</span></div>
     </div>
   </section>
 
-  <!-- Chart + Donut -->
   <section class="grid grid-cols-1 lg:grid-cols-3 gap-6">
     <div class="lg:col-span-2 rounded-xl shadow-sm border border-gray-200 bg-white text-gray-800 overflow-hidden">
       <div class="flex flex-wrap justify-between items-start gap-3 px-6 pt-5 pb-3">
@@ -73,19 +41,11 @@
             <select id="waste-type-filter" class="bg-transparent text-xs font-semibold text-gray-700 outline-none"></select>
           </div>
           <div class="relative">
-            <button id="machine-menu-btn" type="button"
-              class="flex items-center gap-2 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-xs font-semibold text-gray-700 hover:bg-gray-100">
-              <i data-lucide="monitor-play" class="w-4 h-4 text-gray-500"></i>
-              <span id="machine-filter-label">ทุกเครื่อง</span>
-              <i data-lucide="chevron-down" class="w-4 h-4 text-gray-500"></i>
+            <button id="machine-menu-btn" type="button" class="flex items-center gap-2 rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 text-xs font-semibold text-gray-700 hover:bg-gray-100">
+              <i data-lucide="monitor-play" class="w-4 h-4 text-gray-500"></i><span id="machine-filter-label">ทุกเครื่อง</span><i data-lucide="chevron-down" class="w-4 h-4 text-gray-500"></i>
             </button>
-            <div id="machine-menu"
-              class="hidden absolute right-0 z-20 mt-2 w-72 rounded-lg border border-gray-200 bg-white p-3 shadow-lg">
-              <div class="flex items-center justify-between border-b border-gray-200 pb-2 mb-2">
-                <span class="text-xs font-semibold text-gray-700">เครื่องที่แสดง</span>
-                <button id="select-all-machines" type="button"
-                  class="text-xs font-semibold text-teal-600 hover:text-teal-700">ทุกเครื่อง</button>
-              </div>
+            <div id="machine-menu" class="hidden absolute right-0 z-20 mt-2 w-72 rounded-lg border border-gray-200 bg-white p-3 shadow-lg">
+              <div class="flex items-center justify-between border-b border-gray-200 pb-2 mb-2"><span class="text-xs font-semibold text-gray-700">เครื่องที่แสดง</span><button id="select-all-machines" type="button" class="text-xs font-semibold text-teal-600 hover:text-teal-700">ทุกเครื่อง</button></div>
               <div id="machine-options" class="max-h-48 space-y-2 overflow-y-auto pr-1"></div>
             </div>
           </div>
@@ -93,21 +53,23 @@
       </div>
       <div class="px-6 pb-2 no-print">
         <div class="flex flex-wrap items-center gap-2 rounded-lg border border-gray-200 bg-gray-50 p-2">
-          <div class="flex items-center gap-2 px-2 text-xs font-semibold text-gray-600">
-            <i data-lucide="calendar-days" class="h-4 w-4 text-gray-500"></i>
-            <span>ช่วงวันที่</span>
+          <div class="flex items-center gap-2 px-2 text-xs font-semibold text-gray-600"><i data-lucide="calendar-days" class="h-4 w-4 text-gray-500"></i><span>ช่วงวันที่</span></div>
+          <div class="relative">
+            <input id="chart-start-date" type="text" inputmode="numeric" placeholder="dd/mm/yyyy" class="w-32 rounded-md border border-gray-200 bg-white py-1.5 pl-2 pr-8 text-xs text-gray-700 outline-none focus:border-blue-400">
+            <button type="button" onclick="openAdminDatePicker('chart-start-date','chart-start-date-picker')" class="absolute right-1 top-1/2 -translate-y-1/2 rounded p-1 text-gray-500 hover:bg-blue-50 hover:text-blue-600" aria-label="เปิดปฏิทินวันที่เริ่มต้น"><i data-lucide="calendar" class="h-4 w-4"></i></button>
+            <input id="chart-start-date-picker" type="date" tabindex="-1" aria-hidden="true" class="pointer-events-none absolute bottom-0 right-0 h-px w-px opacity-0">
           </div>
-          <input id="chart-start-date" type="date" class="rounded-md border border-gray-200 bg-white px-2 py-1.5 text-xs text-gray-700 outline-none focus:border-blue-400">
           <span class="text-xs text-gray-400">ถึง</span>
-          <input id="chart-end-date" type="date" class="rounded-md border border-gray-200 bg-white px-2 py-1.5 text-xs text-gray-700 outline-none focus:border-blue-400">
+          <div class="relative">
+            <input id="chart-end-date" type="text" inputmode="numeric" placeholder="dd/mm/yyyy" class="w-32 rounded-md border border-gray-200 bg-white py-1.5 pl-2 pr-8 text-xs text-gray-700 outline-none focus:border-blue-400">
+            <button type="button" onclick="openAdminDatePicker('chart-end-date','chart-end-date-picker')" class="absolute right-1 top-1/2 -translate-y-1/2 rounded p-1 text-gray-500 hover:bg-blue-50 hover:text-blue-600" aria-label="เปิดปฏิทินวันที่สิ้นสุด"><i data-lucide="calendar" class="h-4 w-4"></i></button>
+            <input id="chart-end-date-picker" type="date" tabindex="-1" aria-hidden="true" class="pointer-events-none absolute bottom-0 right-0 h-px w-px opacity-0">
+          </div>
           <div id="range-presets" class="flex flex-wrap gap-1"></div>
         </div>
       </div>
       <div class="px-5 pb-4">
-        <div class="relative h-72 w-full">
-          <canvas id="waste-line-chart" class="h-full w-full"></canvas>
-          <div id="chart-empty" class="hidden absolute inset-0 items-center justify-center text-sm text-gray-500">ไม่มีข้อมูลสำหรับแสดงกราฟ</div>
-        </div>
+        <div class="relative h-72 w-full"><canvas id="waste-line-chart" class="h-full w-full"></canvas><div id="chart-empty" class="hidden absolute inset-0 items-center justify-center text-sm text-gray-500">ไม่มีข้อมูลสำหรับแสดงกราฟ</div></div>
         <div id="chart-legend" class="flex flex-wrap items-center justify-center gap-x-5 gap-y-2 border-t border-gray-200 pt-3 text-xs font-semibold text-gray-600"></div>
       </div>
       {{ chart_payload|json_script:"chart-payload" }}
@@ -115,27 +77,14 @@
 
     <div class="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
       <h2 class="text-lg font-bold text-gray-800 mb-4">สัดส่วนขยะ</h2>
-      <div class="space-y-4">
-        <div>
-          <div class="flex justify-between text-sm mb-1"><span class="text-gray-600">พลาสติก (PET)</span><span class="font-bold text-blue-600">45%</span></div>
-          <div class="w-full bg-gray-100 rounded-full h-2.5"><div class="bg-blue-500 h-2.5 rounded-full" style="width:45%"></div></div>
-        </div>
-        <div>
-          <div class="flex justify-between text-sm mb-1"><span class="text-gray-600">แก้ว (Glass)</span><span class="font-bold text-green-600">30%</span></div>
-          <div class="w-full bg-gray-100 rounded-full h-2.5"><div class="bg-green-500 h-2.5 rounded-full" style="width:30%"></div></div>
-        </div>
-        <div>
-          <div class="flex justify-between text-sm mb-1"><span class="text-gray-600">กระป๋อง (Can)</span><span class="font-bold text-orange-600">25%</span></div>
-          <div class="w-full bg-gray-100 rounded-full h-2.5"><div class="bg-orange-500 h-2.5 rounded-full" style="width:25%"></div></div>
-        </div>
-      </div>
+      <div class="flex flex-col items-center gap-5"><canvas id="waste-pie-chart" width="320" height="320" class="max-w-full"></canvas><div id="pie-legend" class="grid grid-cols-1 gap-y-2 text-sm text-gray-600"></div></div>
+      {{ waste_distribution|json_script:"waste-distribution" }}
     </div>
   </section>
-
 </div>
 <script>
 lucide.createIcons();
-
+const wasteDistribution=JSON.parse(document.getElementById('waste-distribution').textContent);const pieCanvas=document.getElementById('waste-pie-chart');const pieCtx=pieCanvas.getContext('2d');const pieTotal=wasteDistribution.reduce((sum,item)=>sum+item.value,0);let pieStart=-Math.PI/2;wasteDistribution.forEach(item=>{const slice=pieTotal?item.value/pieTotal*Math.PI*2:Math.PI*2/wasteDistribution.length;pieCtx.beginPath();pieCtx.moveTo(160,160);pieCtx.arc(160,160,132,pieStart,pieStart+slice);pieCtx.closePath();pieCtx.fillStyle=item.color;pieCtx.fill();pieStart+=slice});pieCtx.beginPath();pieCtx.arc(160,160,76,0,Math.PI*2);pieCtx.fillStyle='#fff';pieCtx.fill();pieCtx.fillStyle='#111827';pieCtx.font='bold 24px Sarabun';pieCtx.textAlign='center';pieCtx.fillText((pieTotal||0).toFixed(1),160,156);pieCtx.font='14px Sarabun';pieCtx.fillStyle='#6b7280';pieCtx.fillText('กิโลกรัม',160,180);document.getElementById('pie-legend').innerHTML=wasteDistribution.map(item=>`<div class="flex items-center gap-2"><span class="h-3 w-3 rounded-full" style="background:${item.color}"></span>${item.label}: ${item.value.toFixed(1)} กก.</div>`).join('');
 const chartPayload = JSON.parse(document.getElementById('chart-payload').textContent);
 const chartCanvas = document.getElementById('waste-line-chart');
 const chartCtx = chartCanvas.getContext('2d');
@@ -150,306 +99,37 @@ const wasteTypeFilter = document.getElementById('waste-type-filter');
 const startDateInput = document.getElementById('chart-start-date');
 const endDateInput = document.getElementById('chart-end-date');
 const rangePresets = document.getElementById('range-presets');
-const presetDays = [7, 14, 30, 60, 120];
+const rangePresetOptions = [
+  {key:'7d',label:'7 วัน',days:7},
+  {key:'30d',label:'30 วัน',days:30},
+  {key:'3m',label:'3 เดือน',months:3},
+  {key:'6m',label:'6 เดือน',months:6},
+  {key:'1y',label:'1 ปี',months:12},
+  {key:'custom',label:'กำหนดเอง'},
+];
 let selectedMachines = new Set(chartPayload.series.map(item => item.id));
 let selectedWasteType = 'All';
-let selectedDays = chartPayload.defaultDays || 7;
+let selectedRange = chartPayload.defaultRange || '7d';
 let hoverPoint = null;
-
-function compactNumber(value) {
-  return Number.isInteger(value) ? value.toLocaleString() : value.toFixed(1);
-}
-
-function typeLabel(type) {
-  return type === 'All' ? 'ทุกประเภท' : type;
-}
-
-function isoAddDays(isoDate, days) {
-  const date = new Date(isoDate + 'T00:00:00');
-  date.setDate(date.getDate() + days);
-  return date.toISOString().slice(0, 10);
-}
-
-function drawWasteTypeOptions() {
-  wasteTypeFilter.innerHTML = '';
-  chartPayload.wasteTypes.forEach(type => {
-    const option = document.createElement('option');
-    option.value = type;
-    option.textContent = typeLabel(type);
-    wasteTypeFilter.appendChild(option);
-  });
-}
-
-function drawRangePresets() {
-  rangePresets.innerHTML = '';
-  presetDays.forEach(days => {
-    const button = document.createElement('button');
-    button.type = 'button';
-    button.dataset.days = days;
-    button.className = 'range-preset rounded-md px-3 py-1.5 text-xs font-semibold transition-colors';
-    button.textContent = days + ' วัน';
-    rangePresets.appendChild(button);
-  });
-  updatePresetButtons();
-}
-
-function updatePresetButtons() {
-  document.querySelectorAll('.range-preset').forEach(button => {
-    const active = Number(button.dataset.days) === selectedDays;
-    button.className = active
-      ? 'range-preset rounded-md bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white transition-colors'
-      : 'range-preset rounded-md bg-white px-3 py-1.5 text-xs font-semibold text-gray-600 transition-colors hover:bg-gray-100';
-  });
-}
-
-function setPresetRange(days) {
-  selectedDays = days;
-  const end = chartPayload.dates[chartPayload.dates.length - 1];
-  const start = isoAddDays(end, -(days - 1));
-  startDateInput.value = start;
-  endDateInput.value = end;
-  updatePresetButtons();
-  hoverPoint = null;
-  drawChart();
-}
-
-function syncCustomDateRange() {
-  if (startDateInput.value && endDateInput.value && startDateInput.value > endDateInput.value) {
-    const previousStart = startDateInput.value;
-    startDateInput.value = endDateInput.value;
-    endDateInput.value = previousStart;
-  }
-  selectedDays = null;
-  updatePresetButtons();
-  hoverPoint = null;
-  drawChart();
-}
-
-function drawMachineOptions() {
-  machineOptions.innerHTML = '';
-  chartPayload.series.forEach(item => {
-    const label = document.createElement('label');
-    label.className = 'flex cursor-pointer items-center gap-3 rounded-md px-2 py-2 text-xs text-gray-700 hover:bg-gray-50';
-    label.innerHTML = `
-      <input type="checkbox" class="machine-check h-4 w-4 rounded border-gray-300 bg-white accent-teal-500" value="${item.id}" checked>
-      <span class="h-2.5 w-2.5 rounded-full" style="background:${item.color}"></span>
-      <span class="flex-1 truncate">${item.name}</span>
-    `;
-    machineOptions.appendChild(label);
-  });
-}
-
-function syncSelectionFromChecks() {
-  selectedMachines = new Set(Array.from(document.querySelectorAll('.machine-check:checked')).map(input => input.value));
-  if (selectedMachines.size === 0 && chartPayload.series[0]) {
-    selectedMachines.add(chartPayload.series[0].id);
-    document.querySelector('.machine-check').checked = true;
-  }
-  updateMachineLabel();
-  hoverPoint = null;
-  drawChart();
-}
-
-function updateMachineLabel() {
-  const total = chartPayload.series.length;
-  const count = selectedMachines.size;
-  if (count === total) machineFilterLabel.textContent = 'ทุกเครื่อง';
-  else if (count === 1) machineFilterLabel.textContent = chartPayload.series.find(item => selectedMachines.has(item.id))?.name || 'เลือกเครื่อง';
-  else machineFilterLabel.textContent = `เลือก ${count} เครื่อง`;
-}
-
-function selectedIndexRange() {
-  const start = startDateInput.value || chartPayload.dates[0];
-  const end = endDateInput.value || chartPayload.dates[chartPayload.dates.length - 1];
-  const indices = [];
-  chartPayload.dates.forEach((date, index) => {
-    if (date >= start && date <= end) indices.push(index);
-  });
-  return indices;
-}
-
-function currentChartState() {
-  const indices = selectedIndexRange();
-  return {
-    labels: indices.map(index => chartPayload.labels[index]),
-    series: chartPayload.series
-      .filter(item => selectedMachines.has(item.id))
-      .map(item => ({
-        id: item.id,
-        name: item.name,
-        color: item.color,
-        values: indices.map(index => (item.valuesByType[selectedWasteType] || item.valuesByType.All || [])[index] || 0),
-      })),
-  };
-}
-
-function resizeCanvas() {
-  const ratio = window.devicePixelRatio || 1;
-  const rect = chartCanvas.getBoundingClientRect();
-  chartCanvas.width = Math.max(1, Math.floor(rect.width * ratio));
-  chartCanvas.height = Math.max(1, Math.floor(rect.height * ratio));
-  chartCtx.setTransform(ratio, 0, 0, ratio, 0, 0);
-}
-
-function drawChart() {
-  resizeCanvas();
-  const state = currentChartState();
-  const rect = chartCanvas.getBoundingClientRect();
-  const width = rect.width;
-  const height = rect.height;
-  const pad = { top: 18, right: 24, bottom: 38, left: 52 };
-  const plotW = Math.max(1, width - pad.left - pad.right);
-  const plotH = Math.max(1, height - pad.top - pad.bottom);
-  const allValues = state.series.flatMap(item => item.values);
-  const maxValue = Math.max(10, ...allValues);
-  const yMax = Math.ceil(maxValue / 10) * 10;
-
-  chartCtx.clearRect(0, 0, width, height);
-  chartCtx.fillStyle = '#ffffff';
-  chartCtx.fillRect(0, 0, width, height);
-  chartEmpty.classList.toggle('hidden', state.series.length > 0 && state.labels.length > 0);
-  chartEmpty.classList.toggle('flex', state.series.length === 0 || state.labels.length === 0);
-
-  chartCtx.font = '12px Sarabun, sans-serif';
-  chartCtx.lineWidth = 1;
-  chartCtx.strokeStyle = '#e5e7eb';
-  chartCtx.fillStyle = '#6b7280';
-  chartCtx.textAlign = 'right';
-  chartCtx.textBaseline = 'middle';
-
-  for (let i = 0; i <= 4; i++) {
-    const value = yMax - (yMax / 4) * i;
-    const y = pad.top + (plotH / 4) * i;
-    chartCtx.setLineDash([3, 4]);
-    chartCtx.beginPath();
-    chartCtx.moveTo(pad.left, y);
-    chartCtx.lineTo(width - pad.right, y);
-    chartCtx.stroke();
-    chartCtx.setLineDash([]);
-    chartCtx.fillText(compactNumber(value) + ' kg', pad.left - 10, y);
-  }
-
-  chartCtx.textAlign = 'center';
-  chartCtx.textBaseline = 'top';
-  const labelStep = Math.max(1, Math.ceil(state.labels.length / 7));
-  state.labels.forEach((label, index) => {
-    const shouldShow = index === 0 || index === state.labels.length - 1 || index % labelStep === 0;
-    if (!shouldShow) return;
-    const x = pad.left + (state.labels.length === 1 ? plotW / 2 : (plotW / (state.labels.length - 1)) * index);
-    chartCtx.fillStyle = '#6b7280';
-    chartCtx.fillText(label, x, height - pad.bottom + 16);
-  });
-
-  state.series.forEach(series => {
-    chartCtx.strokeStyle = series.color;
-    chartCtx.lineWidth = 3;
-    chartCtx.lineJoin = 'round';
-    chartCtx.lineCap = 'round';
-    chartCtx.beginPath();
-    series.values.forEach((value, index) => {
-      const x = pad.left + (series.values.length === 1 ? plotW / 2 : (plotW / (series.values.length - 1)) * index);
-      const y = pad.top + plotH - (value / yMax) * plotH;
-      if (index === 0) chartCtx.moveTo(x, y);
-      else chartCtx.lineTo(x, y);
-    });
-    chartCtx.stroke();
-
-    series.values.forEach((value, index) => {
-      const x = pad.left + (series.values.length === 1 ? plotW / 2 : (plotW / (series.values.length - 1)) * index);
-      const y = pad.top + plotH - (value / yMax) * plotH;
-      chartCtx.fillStyle = series.color;
-      chartCtx.beginPath();
-      chartCtx.arc(x, y, hoverPoint?.series === series.id && hoverPoint?.index === index ? 5 : 3.5, 0, Math.PI * 2);
-      chartCtx.fill();
-    });
-  });
-
-  if (hoverPoint) drawTooltip(hoverPoint, state, pad, plotW, plotH, yMax);
-  drawLegend(state.series);
-}
-
-function drawTooltip(point, state, pad, plotW, plotH, yMax) {
-  const series = state.series.find(item => item.id === point.series);
-  if (!series) return;
-  const value = series.values[point.index];
-  const x = pad.left + (series.values.length === 1 ? plotW / 2 : (plotW / (series.values.length - 1)) * point.index);
-  const y = pad.top + plotH - (value / yMax) * plotH;
-  const text = `${series.name} · ${typeLabel(selectedWasteType)}: ${compactNumber(value)} kg`;
-  chartCtx.font = '12px Sarabun, sans-serif';
-  const boxW = chartCtx.measureText(text).width + 22;
-  const boxH = 30;
-  const boxX = Math.min(Math.max(8, x - boxW / 2), chartCanvas.getBoundingClientRect().width - boxW - 8);
-  const boxY = Math.max(8, y - 42);
-  chartCtx.fillStyle = '#1e293b';
-  chartCtx.strokeStyle = '#cbd5e1';
-  chartCtx.lineWidth = 1;
-  chartCtx.beginPath();
-  chartCtx.roundRect(boxX, boxY, boxW, boxH, 6);
-  chartCtx.fill();
-  chartCtx.stroke();
-  chartCtx.fillStyle = '#ffffff';
-  chartCtx.textAlign = 'center';
-  chartCtx.textBaseline = 'middle';
-  chartCtx.fillText(text, boxX + boxW / 2, boxY + boxH / 2);
-}
-
-function drawLegend(activeSeries) {
-  chartLegend.innerHTML = '';
-  activeSeries.forEach(series => {
-    const item = document.createElement('div');
-    item.className = 'flex items-center gap-2';
-    item.innerHTML = `<span class="h-1 w-7 rounded-full" style="background:${series.color}"></span><span>${series.name}</span>`;
-    chartLegend.appendChild(item);
-  });
-}
-
-function updateHover(event) {
-  const state = currentChartState();
-  const rect = chartCanvas.getBoundingClientRect();
-  const x = event.clientX - rect.left;
-  const y = event.clientY - rect.top;
-  const pad = { top: 18, right: 24, bottom: 38, left: 52 };
-  const plotW = Math.max(1, rect.width - pad.left - pad.right);
-  const plotH = Math.max(1, rect.height - pad.top - pad.bottom);
-  const yMax = Math.ceil(Math.max(10, ...state.series.flatMap(item => item.values)) / 10) * 10;
-  let nearest = null;
-
-  state.series.forEach(series => {
-    series.values.forEach((value, index) => {
-      const px = pad.left + (series.values.length === 1 ? plotW / 2 : (plotW / (series.values.length - 1)) * index);
-      const py = pad.top + plotH - (value / yMax) * plotH;
-      const distance = Math.hypot(x - px, y - py);
-      if (distance < 18 && (!nearest || distance < nearest.distance)) nearest = { series: series.id, index, distance };
-    });
-  });
-
-  hoverPoint = nearest;
-  drawChart();
-}
-
-drawWasteTypeOptions();
-drawRangePresets();
-drawMachineOptions();
-setPresetRange(selectedDays);
-updateMachineLabel();
-window.addEventListener('resize', drawChart);
-chartCanvas.addEventListener('mousemove', updateHover);
-chartCanvas.addEventListener('mouseleave', () => { hoverPoint = null; drawChart(); });
-machineOptions.addEventListener('change', syncSelectionFromChecks);
-wasteTypeFilter.addEventListener('change', event => { selectedWasteType = event.target.value; hoverPoint = null; drawChart(); });
-startDateInput.addEventListener('change', syncCustomDateRange);
-endDateInput.addEventListener('change', syncCustomDateRange);
-rangePresets.addEventListener('click', event => {
-  const button = event.target.closest('.range-preset');
-  if (button) setPresetRange(Number(button.dataset.days));
-});
-machineMenuBtn.addEventListener('click', () => machineMenu.classList.toggle('hidden'));
-selectAllMachines.addEventListener('click', () => {
-  document.querySelectorAll('.machine-check').forEach(input => { input.checked = true; });
-  syncSelectionFromChecks();
-});
-document.addEventListener('click', event => {
-  if (!machineMenu.contains(event.target) && !machineMenuBtn.contains(event.target)) machineMenu.classList.add('hidden');
-});
+function compactNumber(value){return Number.isInteger(value)?value.toLocaleString():value.toFixed(1)}
+function typeLabel(type){const labels={All:'ทุกประเภท',Plastic:'พลาสติก',Glass:'แก้ว',Can:'กระป๋อง'};return labels[type]||type}
+function isoAddDays(isoDate,days){const date=new Date(isoDate+'T00:00:00');date.setDate(date.getDate()+days);return date.toISOString().slice(0,10)}
+function isoToDisplay(isoDate){if(!isoDate)return'';const parts=isoDate.split('-');return parts.length===3?`${parts[2]}/${parts[1]}/${parts[0]}`:isoDate}
+function displayToIso(displayDate){if(!displayDate)return'';const parts=displayDate.split('/');if(parts.length!==3)return displayDate;return`${parts[2]}-${parts[1].padStart(2,'0')}-${parts[0].padStart(2,'0')}`}
+function drawWasteTypeOptions(){wasteTypeFilter.innerHTML='';chartPayload.wasteTypes.forEach(type=>{const option=document.createElement('option');option.value=type;option.textContent=typeLabel(type);wasteTypeFilter.appendChild(option)})}
+function drawRangePresets(){rangePresets.innerHTML='';rangePresetOptions.forEach(option=>{const button=document.createElement('button');button.type='button';button.dataset.range=option.key;button.className='range-preset rounded-md px-3 py-1.5 text-xs font-semibold transition-colors';button.textContent=option.label;rangePresets.appendChild(button)});updatePresetButtons()}
+function updatePresetButtons(){document.querySelectorAll('.range-preset').forEach(button=>{const active=button.dataset.range===selectedRange;button.className=active?'range-preset rounded-md px-3 py-1.5 text-xs font-semibold text-white transition-colors accent-bg':'range-preset rounded-md bg-white px-3 py-1.5 text-xs font-semibold text-gray-600 transition-colors hover:bg-gray-100'})}
+function subtractCalendarMonths(isoDate,months){const [year,month,day]=isoDate.split('-').map(Number);const targetMonthIndex=year*12+(month-1)-months;const targetYear=Math.floor(targetMonthIndex/12);const targetMonth=targetMonthIndex%12;const lastDay=new Date(targetYear,targetMonth+1,0).getDate();const result=new Date(targetYear,targetMonth,Math.min(day,lastDay));result.setDate(result.getDate()+1);return`${result.getFullYear()}-${String(result.getMonth()+1).padStart(2,'0')}-${String(result.getDate()).padStart(2,'0')}`}
+function setPresetRange(rangeKey){const option=rangePresetOptions.find(item=>item.key===rangeKey);if(!option||rangeKey==='custom')return;selectedRange=rangeKey;const end=chartPayload.dates[chartPayload.dates.length-1];const start=option.days?isoAddDays(end,-(option.days-1)):subtractCalendarMonths(end,option.months);startDateInput.value=isoToDisplay(start);endDateInput.value=isoToDisplay(end);document.getElementById('chart-start-date-picker').value=start;document.getElementById('chart-end-date-picker').value=end;updatePresetButtons();hoverPoint=null;drawChart()}
+function syncCustomDateRange(){let start=displayToIso(startDateInput.value);let end=displayToIso(endDateInput.value);if(start&&end&&start>end){const previousStart=start;start=end;end=previousStart;startDateInput.value=isoToDisplay(start);endDateInput.value=isoToDisplay(end)}selectedRange='custom';updatePresetButtons();hoverPoint=null;drawChart()}
+function drawMachineOptions(){machineOptions.innerHTML='';chartPayload.series.forEach(item=>{const label=document.createElement('label');label.className='flex cursor-pointer items-center gap-3 rounded-md px-2 py-2 text-xs text-gray-700 hover:bg-gray-50';label.innerHTML=`<input type="checkbox" class="machine-check h-4 w-4 rounded border-gray-300 bg-white accent-teal-500" value="${item.id}" checked><span class="h-2.5 w-2.5 rounded-full" style="background:${item.color}"></span><span class="flex-1 truncate">${item.name}</span>`;machineOptions.appendChild(label)})}
+function syncSelectionFromChecks(){selectedMachines=new Set(Array.from(document.querySelectorAll('.machine-check:checked')).map(input=>input.value));if(selectedMachines.size===0&&chartPayload.series[0]){selectedMachines.add(chartPayload.series[0].id);document.querySelector('.machine-check').checked=true}updateMachineLabel();hoverPoint=null;drawChart()}
+function updateMachineLabel(){const total=chartPayload.series.length;const count=selectedMachines.size;if(count===total)machineFilterLabel.textContent='ทุกเครื่อง';else if(count===1)machineFilterLabel.textContent=chartPayload.series.find(item=>selectedMachines.has(item.id))?.name||'เลือกเครื่อง';else machineFilterLabel.textContent=`เลือก ${count} เครื่อง`}
+function selectedIndexRange(){const start=displayToIso(startDateInput.value)||chartPayload.dates[0];const end=displayToIso(endDateInput.value)||chartPayload.dates[chartPayload.dates.length-1];const indices=[];chartPayload.dates.forEach((date,index)=>{if(date>=start&&date<=end)indices.push(index)});return indices}
+function currentChartState(){const indices=selectedIndexRange();return{labels:indices.map(index=>chartPayload.labels[index]),series:chartPayload.series.filter(item=>selectedMachines.has(item.id)).map(item=>({id:item.id,name:item.name,color:item.color,values:indices.map(index=>(item.valuesByType[selectedWasteType]||item.valuesByType.All||[])[index]||0)}))}}
+function resizeCanvas(){const ratio=window.devicePixelRatio||1;const rect=chartCanvas.getBoundingClientRect();chartCanvas.width=Math.max(1,Math.floor(rect.width*ratio));chartCanvas.height=Math.max(1,Math.floor(rect.height*ratio));chartCtx.setTransform(ratio,0,0,ratio,0,0)}
+function drawChart(){resizeCanvas();const state=currentChartState();const rect=chartCanvas.getBoundingClientRect();const width=rect.width;const height=rect.height;const pad={top:18,right:24,bottom:38,left:52};const plotW=Math.max(1,width-pad.left-pad.right);const plotH=Math.max(1,height-pad.top-pad.bottom);const allValues=state.series.flatMap(item=>item.values);const maxValue=Math.max(10,...allValues);const yMax=Math.ceil(maxValue/10)*10;chartCtx.clearRect(0,0,width,height);chartCtx.fillStyle='#ffffff';chartCtx.fillRect(0,0,width,height);chartEmpty.classList.toggle('hidden',state.series.length>0&&state.labels.length>0);chartEmpty.classList.toggle('flex',state.series.length===0||state.labels.length===0);chartCtx.font='12px Sarabun, sans-serif';chartCtx.lineWidth=1;chartCtx.strokeStyle='#e5e7eb';chartCtx.fillStyle='#6b7280';chartCtx.textAlign='right';chartCtx.textBaseline='middle';for(let i=0;i<=4;i++){const value=yMax-(yMax/4)*i;const y=pad.top+(plotH/4)*i;chartCtx.setLineDash([3,4]);chartCtx.beginPath();chartCtx.moveTo(pad.left,y);chartCtx.lineTo(width-pad.right,y);chartCtx.stroke();chartCtx.setLineDash([]);chartCtx.fillText(compactNumber(value)+' กก.',pad.left-10,y)}chartCtx.textAlign='center';chartCtx.textBaseline='top';const labelStep=Math.max(1,Math.ceil(state.labels.length/7));state.labels.forEach((label,index)=>{const shouldShow=index===0||index===state.labels.length-1||index%labelStep===0;if(!shouldShow)return;const x=pad.left+(state.labels.length===1?plotW/2:(plotW/(state.labels.length-1))*index);chartCtx.fillStyle='#6b7280';chartCtx.fillText(label,x,height-pad.bottom+16)});state.series.forEach(series=>{chartCtx.strokeStyle=series.color;chartCtx.lineWidth=3;chartCtx.lineJoin='round';chartCtx.lineCap='round';chartCtx.beginPath();series.values.forEach((value,index)=>{const x=pad.left+(series.values.length===1?plotW/2:(plotW/(series.values.length-1))*index);const y=pad.top+plotH-(value/yMax)*plotH;if(index===0)chartCtx.moveTo(x,y);else chartCtx.lineTo(x,y)});chartCtx.stroke();series.values.forEach((value,index)=>{const x=pad.left+(series.values.length===1?plotW/2:(plotW/(series.values.length-1))*index);const y=pad.top+plotH-(value/yMax)*plotH;chartCtx.fillStyle=series.color;chartCtx.beginPath();chartCtx.arc(x,y,hoverPoint?.series===series.id&&hoverPoint?.index===index?5:3.5,0,Math.PI*2);chartCtx.fill()})});drawLegend(state.series)}
+function drawLegend(activeSeries){chartLegend.innerHTML='';activeSeries.forEach(series=>{const item=document.createElement('div');item.className='flex items-center gap-2';item.innerHTML=`<span class="h-1 w-7 rounded-full" style="background:${series.color}"></span><span>${series.name}</span>`;chartLegend.appendChild(item)})}
+drawWasteTypeOptions();drawRangePresets();drawMachineOptions();setPresetRange(selectedRange);updateMachineLabel();window.addEventListener('resize',drawChart);machineOptions.addEventListener('change',syncSelectionFromChecks);wasteTypeFilter.addEventListener('change',event=>{selectedWasteType=event.target.value;hoverPoint=null;drawChart()});startDateInput.addEventListener('change',syncCustomDateRange);endDateInput.addEventListener('change',syncCustomDateRange);rangePresets.addEventListener('click',event=>{const button=event.target.closest('.range-preset');if(!button)return;const rangeKey=button.dataset.range;if(rangeKey==='custom'){selectedRange='custom';updatePresetButtons();openAdminDatePicker('chart-start-date','chart-start-date-picker')}else setPresetRange(rangeKey)});machineMenuBtn.addEventListener('click',()=>machineMenu.classList.toggle('hidden'));selectAllMachines.addEventListener('click',()=>{document.querySelectorAll('.machine-check').forEach(input=>{input.checked=true});syncSelectionFromChecks()});document.addEventListener('click',event=>{if(!machineMenu.contains(event.target)&&!machineMenuBtn.contains(event.target))machineMenu.classList.add('hidden')});window.addEventListener('DOMContentLoaded',()=>{bindAdminDatePicker('chart-start-date','chart-start-date-picker');bindAdminDatePicker('chart-end-date','chart-end-date-picker')});
 </script>
 {% endblock %}

@@ -1,0 +1,43 @@
+{% load core_extras %}
+{% if pagination %}
+<div class="no-print flex flex-col gap-3 border-t border-gray-100 bg-white px-4 py-3 text-sm text-gray-600 sm:flex-row sm:items-center sm:justify-between" data-admin-pagination>
+  <div class="flex flex-wrap items-center gap-3">
+    <span>แสดง {{ pagination.start_index }}–{{ pagination.end_index }} จาก {{ pagination.total_count }} รายการ</span>
+    <label class="flex items-center gap-2 whitespace-nowrap">
+      <span>แสดง</span>
+      <select aria-label="จำนวนรายการต่อหน้า" onchange="updateAdminPageSize('{{ pagination.size_param }}','{{ pagination.page_param }}',this.value)" class="rounded-lg border border-gray-200 bg-gray-50 px-2 py-1.5 text-sm outline-none focus:border-blue-400">
+        {% for option in pagination.page_size_options %}<option value="{{ option }}" {% if pagination.page_size == option %}selected{% endif %}>{{ option }}</option>{% endfor %}
+      </select>
+      <span>รายการต่อหน้า</span>
+    </label>
+  </div>
+  {% if pagination.num_pages > 1 %}
+  <nav class="flex flex-wrap items-center gap-1" aria-label="เปลี่ยนหน้าข้อมูล">
+    {% if pagination.page_obj.has_previous %}
+      {% pagination_url pagination.page_param pagination.page_obj.previous_page_number as previous_url %}
+      <a href="{{ previous_url }}" class="rounded-lg border border-gray-200 px-3 py-1.5 hover:bg-gray-50" aria-label="หน้าก่อนหน้า">ก่อนหน้า</a>
+    {% else %}
+      <span class="cursor-not-allowed rounded-lg border border-gray-100 px-3 py-1.5 text-gray-300">ก่อนหน้า</span>
+    {% endif %}
+    {% for page_number in pagination.page_range %}
+      {% if page_number %}
+        {% if page_number == pagination.page_number %}
+          <span class="accent-bg rounded-lg px-3 py-1.5 font-semibold text-white" aria-current="page">{{ page_number }}</span>
+        {% else %}
+          {% pagination_url pagination.page_param page_number as page_url %}
+          <a href="{{ page_url }}" class="rounded-lg border border-gray-200 px-3 py-1.5 hover:bg-gray-50" aria-label="หน้า {{ page_number }}">{{ page_number }}</a>
+        {% endif %}
+      {% else %}
+        <span class="px-1 text-gray-400">…</span>
+      {% endif %}
+    {% endfor %}
+    {% if pagination.page_obj.has_next %}
+      {% pagination_url pagination.page_param pagination.page_obj.next_page_number as next_url %}
+      <a href="{{ next_url }}" class="rounded-lg border border-gray-200 px-3 py-1.5 hover:bg-gray-50" aria-label="หน้าถัดไป">ถัดไป</a>
+    {% else %}
+      <span class="cursor-not-allowed rounded-lg border border-gray-100 px-3 py-1.5 text-gray-300">ถัดไป</span>
+    {% endif %}
+  </nav>
+  {% endif %}
+</div>
+{% endif %}

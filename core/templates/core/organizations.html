@@ -1,17 +1,54 @@
-﻿{% extends "core/base.html" %}
+{% extends "core/base.html" %}
 {% block content %}
 <div class="p-6 space-y-6">
   <div class="flex flex-col md:flex-row md:items-center justify-between gap-4">
-    <div><h1 class="text-2xl font-bold text-gray-800">Organizations</h1><p class="text-gray-500">System admin can create organizations and set the machine card color for each one.</p></div>
-    <button onclick="document.getElementById('add-org').classList.toggle('hidden')" class="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700"><i data-lucide="plus" class="w-4 h-4"></i>Add organization</button>
+    <div>
+      <h1 class="text-2xl font-bold text-gray-800">หน่วยงาน</h1>
+      <p class="text-gray-500">กำหนดสีเฉพาะของแต่ละหน่วยงานสำหรับเครื่อง กราฟ และรายงาน</p>
+    </div>
+    <button onclick="document.getElementById('add-org').classList.toggle('hidden')" class="flex items-center justify-center gap-2 px-4 py-2 text-white rounded-lg accent-bg">
+      <i data-lucide="plus" class="w-4 h-4"></i>เพิ่มหน่วยงาน
+    </button>
   </div>
 
+  <section class="bg-white border border-gray-200 rounded-xl p-4 shadow-sm">
+    <div class="flex items-center gap-2 mb-3">
+      <i data-lucide="palette" class="w-5 h-5 text-blue-600"></i>
+      <h2 class="font-bold text-gray-800">สีที่มีหน่วยงานใช้งานแล้ว</h2>
+    </div>
+    <div class="flex flex-wrap gap-2">
+      {% for item in organization_colors %}
+      <div class="flex items-center gap-2 px-3 py-2 bg-gray-50 border border-gray-200 rounded-lg text-sm">
+        <span class="w-5 h-5 rounded border border-black/10" style="background:{{ item.color }}"></span>
+        <span class="font-medium text-gray-700">{{ item.name }}</span>
+        <span class="font-mono text-xs text-gray-400">{{ item.color }}</span>
+      </div>
+      {% empty %}
+      <p class="text-sm text-gray-400">ยังไม่มีสีที่ถูกใช้งาน</p>
+      {% endfor %}
+    </div>
+  </section>
+
   <div id="add-org" class="hidden bg-blue-50 border border-blue-200 p-4 rounded-xl">
+    <div class="mb-4">
+      <h2 class="font-bold text-gray-800">เพิ่มหน่วยงาน</h2>
+      <p class="text-sm text-gray-500">สีที่เลือกต้องไม่ซ้ำกับหน่วยงานอื่น</p>
+    </div>
     <form id="form-add-org" method="post" action="/organizations/add/" class="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
       {% csrf_token %}
-      <div><label class="text-xs font-bold text-gray-500 uppercase">Organization name</label><input name="name" required class="w-full p-2 rounded border mt-1" placeholder="Organization name"/></div>
-      <div><label class="text-xs font-bold text-gray-500 uppercase">Machine card color</label><input type="color" name="card_color" value="#2563eb" class="w-full h-10 rounded border mt-1"/></div>
-      <button type="button" onclick="showConfirm('Create organization','Save this organization?','form-add-org')" class="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700">Save</button>
+      <div>
+        <label class="text-xs font-bold text-gray-500 uppercase">ชื่อหน่วยงาน</label>
+        <input name="name" required class="w-full p-2 rounded border mt-1" placeholder="ชื่อหน่วยงาน"/>
+      </div>
+      <div>
+        <label class="text-xs font-bold text-gray-500 uppercase">สีประจำหน่วยงาน</label>
+        <div class="flex items-center gap-3 mt-1">
+          <input id="add-org-color" type="color" name="card_color" value="{{ suggested_color }}" data-org-id="" data-suggested-color="{{ suggested_color }}" class="h-10 w-20 rounded border bg-white"/>
+          <div class="min-w-0 flex-1"><label for="add-org-color-code" class="sr-only">รหัสสี HEX</label><input id="add-org-color-code" data-color-hex type="text" value="{{ suggested_color|upper }}" maxlength="7" pattern="#[0-9A-Fa-f]{6}" spellcheck="false" autocomplete="off" aria-label="รหัสสี HEX" class="w-full rounded border border-gray-200 bg-white px-3 py-2 font-mono text-sm uppercase text-gray-700"/><p id="add-org-color-hint" class="mt-1 text-xs text-green-600">สีว่างที่ระบบแนะนำ</p></div>
+        </div>
+        <p data-color-error class="hidden mt-1 text-xs text-red-600"></p>
+      </div>
+      <button type="button" onclick="confirmOrganizationForm('form-add-org','ยืนยันการเพิ่มหน่วยงาน','บันทึกหน่วยงานนี้หรือไม่?')" class="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700">บันทึก</button>
     </form>
   </div>
 
@@ -25,19 +62,115 @@
           <span class="w-9 h-9 rounded-lg border" style="background:{{ org.card_color }}"></span>
         </div>
         <div class="grid grid-cols-3 gap-3 text-center">
-          <div class="bg-gray-50 rounded-lg p-3"><div class="font-bold text-xl">{{ org.machine_count }}</div><div class="text-xs text-gray-500">Machines</div></div>
-          <div class="bg-gray-50 rounded-lg p-3"><div class="font-bold text-xl">{{ org.user_count }}</div><div class="text-xs text-gray-500">Users</div></div>
-          <div class="bg-gray-50 rounded-lg p-3"><div class="font-bold text-xl">{{ org.issue_count }}</div><div class="text-xs text-gray-500">Issues</div></div>
+          <div class="bg-gray-50 rounded-lg p-3"><div class="font-bold text-xl">{{ org.machine_count }}</div><div class="text-xs text-gray-500">เครื่อง</div></div>
+          <div class="bg-gray-50 rounded-lg p-3"><div class="font-bold text-xl">{{ org.user_count }}</div><div class="text-xs text-gray-500">ผู้ใช้</div></div>
+          <div class="bg-gray-50 rounded-lg p-3"><div class="font-bold text-xl">{{ org.issue_count }}</div><div class="text-xs text-gray-500">แจ้งซ่อม</div></div>
         </div>
         <form id="form-org-{{ org.id }}" method="post" action="/organizations/edit/" class="grid grid-cols-1 gap-3">
           {% csrf_token %}<input type="hidden" name="id" value="{{ org.id }}"/>
-          <input name="name" value="{{ org.name }}" class="p-2 border rounded"/>
-          <div class="flex gap-2"><input type="color" name="card_color" value="{{ org.card_color }}" class="h-10 w-20 rounded border"/><button type="button" onclick="showConfirm('Update organization','Save changes for {{ org.name }}?','form-org-{{ org.id }}')" class="flex-1 px-3 py-2 bg-blue-600 text-white rounded hover:bg-blue-700">Update</button></div>
+          <div><label class="text-xs font-bold text-gray-500">ชื่อหน่วยงาน</label><input name="name" value="{{ org.name }}" class="w-full p-2 border rounded mt-1"/></div>
+          <div>
+            <label class="text-xs font-bold text-gray-500">สีประจำหน่วยงาน</label>
+            <div class="flex items-center gap-2 mt-1">
+              <input type="color" name="card_color" value="{{ org.card_color }}" data-org-id="{{ org.id }}" class="h-10 w-20 rounded border"/>
+              <label class="sr-only" for="org-color-code-{{ forloop.counter }}">รหัสสี HEX ของ {{ org.name }}</label>
+              <input id="org-color-code-{{ forloop.counter }}" data-color-hex type="text" value="{{ org.card_color|upper }}" maxlength="7" pattern="#[0-9A-Fa-f]{6}" spellcheck="false" autocomplete="off" aria-label="รหัสสี HEX ของ {{ org.name }}" class="min-w-0 flex-1 rounded border border-gray-200 px-3 py-2 font-mono text-sm uppercase text-gray-700"/>
+              <button type="button" onclick="confirmOrganizationForm('form-org-{{ org.id }}','ยืนยันการแก้ไข','บันทึกข้อมูล {{ org.name }} หรือไม่?')" class="flex-1 px-3 py-2 text-white rounded accent-bg">อัปเดต</button>
+            </div>
+            <p data-color-error class="hidden mt-1 text-xs text-red-600"></p>
+          </div>
         </form>
       </div>
     </section>
     {% endfor %}
   </div>
+  <div class="overflow-hidden rounded-xl border border-gray-200 shadow-sm">
+    {% include "core/_pagination.html" with pagination=organizations_pagination %}
+  </div>
 </div>
-<script>lucide.createIcons();</script>
+
+{{ organization_colors|json_script:"organization-colors-data" }}
+<script>
+const organizationColors=JSON.parse(document.getElementById('organization-colors-data').textContent);
+
+function validateOrganizationColor(input){
+  const color=input.value.toLowerCase();
+  const owner=organizationColors.find(item=>item.color.toLowerCase()===color && item.id!==input.dataset.orgId);
+  const form=input.closest('form');
+  const error=form.querySelector('[data-color-error]');
+  const code=form.querySelector('[data-color-hex]');
+  const hint=input.id==='add-org-color' ? document.getElementById('add-org-color-hint') : null;
+  if(code){
+    code.value=color.toUpperCase();
+    code.setCustomValidity('');
+  }
+  if(owner){
+    const message=`สีนี้ถูกใช้โดย ${owner.name} แล้ว`;
+    input.setCustomValidity(message);
+    error.textContent=message;
+    error.classList.remove('hidden');
+    if(hint)hint.classList.add('hidden');
+    return false;
+  }
+  input.setCustomValidity('');
+  error.textContent='';
+  error.classList.add('hidden');
+  if(hint){
+    hint.textContent=color===input.dataset.suggestedColor?'สีว่างที่ระบบแนะนำ':'สีนี้ยังไม่ถูกใช้งาน';
+    hint.classList.remove('hidden');
+  }
+  return true;
+}
+
+function normalizeHexColor(value){
+  let color=(value||'').trim().toUpperCase();
+  if(color && !color.startsWith('#'))color=`#${color}`;
+  return color;
+}
+
+function syncHexColor(hexInput,showError=false){
+  const form=hexInput.closest('form');
+  const colorInput=form.querySelector('input[type="color"][name="card_color"]');
+  const error=form.querySelector('[data-color-error]');
+  const color=normalizeHexColor(hexInput.value);
+  hexInput.value=color;
+  if(!/^#[0-9A-F]{6}$/.test(color)){
+    const message='กรุณากรอกรหัสสี HEX รูปแบบ #RRGGBB เช่น #2563EB';
+    hexInput.setCustomValidity(message);
+    if(showError){
+      error.textContent=message;
+      error.classList.remove('hidden');
+      hexInput.reportValidity();
+    }
+    return false;
+  }
+  hexInput.setCustomValidity('');
+  colorInput.value=color;
+  return validateOrganizationColor(colorInput);
+}
+
+function confirmOrganizationForm(formId,title,message){
+  const form=document.getElementById(formId);
+  const colorInput=form.querySelector('input[name="card_color"]');
+  const hexInput=form.querySelector('[data-color-hex]');
+  if(!syncHexColor(hexInput,true))return;
+  if(!validateOrganizationColor(colorInput)){
+    colorInput.reportValidity();
+    return;
+  }
+  showConfirm(title,message,formId);
+}
+
+document.querySelectorAll('input[name="card_color"]').forEach(input=>{
+  input.addEventListener('input',()=>validateOrganizationColor(input));
+  input.addEventListener('change',()=>validateOrganizationColor(input));
+});
+document.querySelectorAll('[data-color-hex]').forEach(input=>{
+  input.addEventListener('input',()=>{
+    if(/^#?[0-9A-Fa-f]{6}$/.test(input.value.trim()))syncHexColor(input);
+  });
+  input.addEventListener('change',()=>syncHexColor(input,true));
+});
+lucide.createIcons();
+</script>
 {% endblock %}

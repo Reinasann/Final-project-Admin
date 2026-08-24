@@ -1,33 +1,130 @@
-﻿{% extends "core/base.html" %}
+{% extends "core/base.html" %}
 {% load core_extras %}
 {% block content %}
-<div class="p-6">
-  <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
-    <div><h1 class="text-2xl font-bold text-gray-800">Reports</h1>{% if current_org %}<p class="text-gray-500">Organization report for {{ current_org.name }}</p>{% else %}<p class="text-gray-500">System-wide report, filterable by organization.</p>{% endif %}</div>
-    <div class="flex gap-2 no-print"><a href="/statistics/export/?start={{ start_date }}&end={{ end_date }}&search={{ search }}&organization={{ organization_filter }}" class="flex items-center gap-2 px-3 py-2 bg-green-50 text-green-700 rounded-lg hover:bg-green-100 text-sm font-medium border border-green-100"><i data-lucide="download" class="w-4 h-4"></i>Export CSV</a><button onclick="window.print()" class="flex items-center gap-2 px-3 py-2 bg-red-50 text-red-700 rounded-lg hover:bg-red-100 text-sm font-medium border border-red-100"><i data-lucide="printer" class="w-4 h-4"></i>Print</button></div>
+<style>
+  @media print {
+    @page { size: A4 landscape; margin: 13mm 10mm 15mm; }
+    * { -webkit-print-color-adjust: exact!important; print-color-adjust: exact!important; }
+    .statistics-page { padding: 0!important; background: #fff!important; }
+    .report-document { border: 0!important; border-radius: 0!important; box-shadow: none!important; overflow: visible!important; }
+    .report-table-wrap { overflow: visible!important; }
+    .report-print-header { display: flex!important; align-items: flex-start; justify-content: space-between; gap: 12mm; margin-bottom: 6mm; border-bottom: 3px solid var(--report-color); padding-bottom: 4mm; }
+    .report-print-brand { display: flex; align-items: center; gap: 3mm; }
+    .report-print-logo { display: flex; width: 12mm; height: 12mm; align-items: center; justify-content: center; border-radius: 3mm; background: var(--report-color); color: #fff; font-size: 18pt; font-weight: 700; }
+    .report-print-title { margin: 0; color: #111827; font-size: 18pt; font-weight: 700; line-height: 1.2; }
+    .report-print-subtitle { margin-top: 1mm; color: #6b7280; font-size: 9pt; }
+    .report-print-meta { min-width: 78mm; font-size: 8.5pt; line-height: 1.55; }
+    .report-print-meta-row { display: grid; grid-template-columns: 26mm 1fr; border-bottom: 1px solid #e5e7eb; padding: 1mm 0; }
+    .report-print-meta-label { color: #6b7280; }
+    .report-print-summary { display: grid!important; grid-template-columns: repeat(3, 1fr); gap: 3mm; margin-bottom: 5mm; }
+    .report-print-summary > div { border: 1px solid #d1d5db; border-top: 3px solid var(--report-color); border-radius: 2mm; padding: 3mm 4mm; }
+    .report-print-summary-label { color: #6b7280; font-size: 8pt; }
+    .report-print-summary-value { margin-top: 1mm; color: #111827; font-size: 13pt; font-weight: 700; }
+    .report-table { width: 100%; table-layout: fixed; border-collapse: collapse; color: #1f2937; font-size: 8.5pt; }
+    .report-table thead { display: table-header-group; }
+    .report-table tr { break-inside: avoid; page-break-inside: avoid; }
+    .report-table th { background: var(--report-color)!important; color: #fff!important; font-weight: 600; }
+    .report-table th, .report-table td { border: 1px solid #d1d5db!important; padding: 2.2mm 2.5mm!important; vertical-align: top; overflow-wrap: anywhere; }
+    .report-table tbody tr:nth-child(even) { background: #f8fafc!important; }
+    .report-table tbody tr { border-left: 0!important; }
+    .report-table tbody.print-only { display: table-row-group!important; }
+    .report-table .report-nowrap { white-space: nowrap; }
+    .report-table tfoot td { background: #eef2ff!important; border-top: 2px solid var(--report-color)!important; font-weight: 700; }
+    .report-print-footer { position: fixed; right: 0; bottom: -10mm; left: 0; display: flex!important; justify-content: space-between; border-top: 1px solid #d1d5db; padding-top: 2mm; color: #6b7280; font-size: 7.5pt; }
+  }
+</style>
+<div class="statistics-page p-6" style="--report-color:{{ report_color }}">
+  <div class="no-print flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
+    <div><h1 class="text-2xl font-bold text-gray-800">รายงาน</h1>{% if current_org %}<p class="text-gray-500">รายงานการเก็บขยะของ {{ current_org.name }}</p>{% else %}<p class="text-gray-500">รายงานทั้งระบบ เลือกดูตามหน่วยงานได้</p>{% endif %}</div>
+    <div class="flex gap-2"><a href="/statistics/export/?start={{ start_date }}&end={{ end_date }}&search={{ search }}&organization={{ organization_filter }}&machine={{ machine_filter }}&type={{ type_filter }}&staff={{ staff_filter }}" class="flex items-center gap-2 px-3 py-2 bg-green-50 text-green-700 rounded-lg hover:bg-green-100 text-sm font-medium border border-green-100"><i data-lucide="download" class="w-4 h-4"></i>ส่งออก CSV</a><button type="button" onclick="printStatisticsReport()" class="flex items-center gap-2 px-3 py-2 bg-red-50 text-red-700 rounded-lg hover:bg-red-100 text-sm font-medium border border-red-100"><i data-lucide="file-text" class="w-4 h-4"></i>ส่งออก PDF</button></div>
   </div>
 
-  <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-    <div class="bg-white p-5 rounded-xl border border-gray-100 shadow-sm"><p class="text-gray-500 text-sm">Rows</p><div class="text-3xl font-bold">{{ history|length }}</div></div>
-    <div class="bg-white p-5 rounded-xl border border-gray-100 shadow-sm"><p class="text-gray-500 text-sm">Total weight</p><div class="text-3xl font-bold">{{ total_weight }} <span class="text-sm text-gray-400">kg</span></div></div>
-    <div class="bg-white p-5 rounded-xl border border-gray-100 shadow-sm"><p class="text-gray-500 text-sm">Scope</p><div class="text-xl font-bold">{% if current_org %}{{ current_org.name }}{% else %}All organizations{% endif %}</div></div>
+  <header class="print-only report-print-header">
+    <div class="report-print-brand"><div class="report-print-logo">R</div><div><h1 class="report-print-title">รายงานการเก็บขยะรีไซเคิล</h1><p class="report-print-subtitle">ระบบบริหารจัดการเครื่องคัดแยกขยะ RecycleAdmin</p></div></div>
+    <div class="report-print-meta">
+      <div class="report-print-meta-row"><span class="report-print-meta-label">ขอบเขตข้อมูล</span><strong>{{ report_scope }}</strong></div>
+      <div class="report-print-meta-row"><span class="report-print-meta-label">ช่วงวันที่</span><strong>{{ report_period }}</strong></div>
+      <div class="report-print-meta-row"><span class="report-print-meta-label">สร้างรายงานเมื่อ</span><strong>{{ generated_at|date:"d/m/Y H:i" }} น.</strong></div>
+    </div>
+  </header>
+
+  <div class="no-print grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+    <div class="bg-white p-5 rounded-xl border border-gray-100 shadow-sm"><p class="text-gray-500 text-sm">จำนวนรายการ</p><div class="text-3xl font-bold">{{ statistics_pagination.total_count }}</div></div>
+    <div class="bg-white p-5 rounded-xl border border-gray-100 shadow-sm"><p class="text-gray-500 text-sm">น้ำหนักรวม</p><div class="text-3xl font-bold">{{ total_weight|floatformat:2 }} <span class="text-sm text-gray-400">กก.</span></div></div>
+    <div class="bg-white p-5 rounded-xl border border-gray-100 shadow-sm"><p class="text-gray-500 text-sm">ขอบเขตข้อมูล</p><div class="text-xl font-bold">{{ report_scope }}</div></div>
   </div>
 
-  <div class="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
-    <div class="p-6 border-b border-gray-100 no-print">
-      <form method="get" class="flex flex-wrap gap-3 bg-gray-50 p-3 rounded-lg border border-gray-200">
-        <div class="flex items-center gap-2 bg-white px-3 py-2 rounded border border-gray-200"><span class="text-xs text-gray-400 font-bold uppercase">From</span><input type="date" name="start" value="{{ start_date }}" class="text-sm outline-none text-gray-600"/></div>
-        <div class="flex items-center gap-2 bg-white px-3 py-2 rounded border border-gray-200"><span class="text-xs text-gray-400 font-bold uppercase">To</span><input type="date" name="end" value="{{ end_date }}" class="text-sm outline-none text-gray-600"/></div>
-        {% if is_system_admin %}<select name="organization" onchange="this.form.submit()" class="px-4 py-2 border border-gray-200 rounded bg-white text-sm"><option value="All">All organizations</option>{% for org in organizations %}<option value="{{ org.id }}" {% if organization_filter == org.id %}selected{% endif %}>{{ org.name }}</option>{% endfor %}</select>{% endif %}
-        <div class="flex-1 min-w-[200px] flex items-center gap-2 bg-white px-3 py-2 rounded border border-gray-200"><i data-lucide="search" class="w-4 h-4 text-gray-400"></i><input type="text" name="search" value="{{ search }}" placeholder="Search staff, machine, or type" class="w-full text-sm outline-none"/></div>
-        <button type="submit" class="px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700">Filter</button><a href="/statistics/" class="px-4 py-2 bg-gray-100 text-gray-600 rounded-lg text-sm font-medium hover:bg-gray-200">Clear</a>
+  <div class="print-only report-print-summary">
+    <div><div class="report-print-summary-label">จำนวนรายการ</div><div class="report-print-summary-value">{{ statistics_pagination.total_count }} รายการ</div></div>
+    <div><div class="report-print-summary-label">น้ำหนักรวม</div><div class="report-print-summary-value">{{ total_weight|floatformat:2 }} กก.</div></div>
+    <div><div class="report-print-summary-label">เงื่อนไขเพิ่มเติม</div><div class="report-print-summary-value" style="font-size:9.5pt;line-height:1.45">เครื่อง: {% if machine_filter == 'All' %}ทั้งหมด{% else %}{{ machine_filter }}{% endif %}<br/>ประเภท: {% if type_filter == 'All' %}ทั้งหมด{% else %}{{ type_filter|waste_th }}{% endif %} · ผู้เก็บ: {% if staff_filter == 'All' %}ทั้งหมด{% else %}{{ staff_filter }}{% endif %}</div></div>
+  </div>
+
+  <div class="report-document bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden">
+    <div class="p-6 border-b border-gray-100 no-print" style="border-top:6px solid {{ report_color }}">
+      <form method="get" class="flex flex-wrap items-end gap-3 bg-gray-50 p-4 rounded-lg border border-gray-200">
+        <input type="hidden" name="page_size" value="{{ statistics_pagination.page_size }}"/>
+        <div class="flex flex-col gap-1.5">
+          <label for="filter-start" class="text-xs font-semibold text-gray-600">วันที่เริ่มต้น</label>
+          <div class="relative">
+            <input id="filter-start" type="text" name="start" value="{{ start_date_display }}" placeholder="dd/mm/yyyy" inputmode="numeric" pattern="\d{2}/\d{2}/\d{4}" class="h-10 w-36 rounded border border-gray-200 bg-white py-2 pl-3 pr-10 text-sm text-gray-600 outline-none focus:border-blue-400"/>
+            <button type="button" onclick="openAdminDatePicker('filter-start','filter-start-picker')" class="absolute right-1 top-1/2 -translate-y-1/2 rounded p-2 text-gray-500 hover:bg-blue-50 hover:text-blue-600" aria-label="เปิดปฏิทินวันที่เริ่มต้น"><i data-lucide="calendar" class="h-4 w-4"></i></button>
+            <input id="filter-start-picker" type="date" value="{{ start_date }}" tabindex="-1" aria-hidden="true" class="pointer-events-none absolute bottom-0 right-0 h-px w-px opacity-0"/>
+          </div>
+        </div>
+        <div class="flex flex-col gap-1.5">
+          <label for="filter-end" class="text-xs font-semibold text-gray-600">วันที่สิ้นสุด</label>
+          <div class="relative">
+            <input id="filter-end" type="text" name="end" value="{{ end_date_display }}" placeholder="dd/mm/yyyy" inputmode="numeric" pattern="\d{2}/\d{2}/\d{4}" class="h-10 w-36 rounded border border-gray-200 bg-white py-2 pl-3 pr-10 text-sm text-gray-600 outline-none focus:border-blue-400"/>
+            <button type="button" onclick="openAdminDatePicker('filter-end','filter-end-picker')" class="absolute right-1 top-1/2 -translate-y-1/2 rounded p-2 text-gray-500 hover:bg-blue-50 hover:text-blue-600" aria-label="เปิดปฏิทินวันที่สิ้นสุด"><i data-lucide="calendar" class="h-4 w-4"></i></button>
+            <input id="filter-end-picker" type="date" value="{{ end_date }}" tabindex="-1" aria-hidden="true" class="pointer-events-none absolute bottom-0 right-0 h-px w-px opacity-0"/>
+          </div>
+        </div>
+        {% if is_system_admin %}
+        <div class="flex flex-col gap-1.5">
+          <label for="filter-organization" class="text-xs font-semibold text-gray-600">หน่วยงาน</label>
+          <select id="filter-organization" name="organization" onchange="this.form.submit()" class="h-10 min-w-40 rounded border border-gray-200 bg-white px-3 text-sm"><option value="All">ทุกหน่วยงาน</option>{% for org in organizations %}<option value="{{ org.id }}" {% if organization_filter == org.id %}selected{% endif %}>{{ org.name }}</option>{% endfor %}</select>
+        </div>
+        {% endif %}
+        <div class="flex flex-col gap-1.5">
+          <label for="filter-machine" class="text-xs font-semibold text-gray-600">เครื่องคัดแยก</label>
+          <select id="filter-machine" name="machine" class="h-10 min-w-40 rounded border border-gray-200 bg-white px-3 text-sm"><option value="All">ทุกเครื่อง</option>{% for machine in machine_options %}<option value="{{ machine }}" {% if machine_filter == machine %}selected{% endif %}>{{ machine }}</option>{% endfor %}</select>
+        </div>
+        <div class="flex flex-col gap-1.5">
+          <label for="filter-type" class="text-xs font-semibold text-gray-600">ประเภทขยะ</label>
+          <select id="filter-type" name="type" class="h-10 min-w-40 rounded border border-gray-200 bg-white px-3 text-sm"><option value="All">ทุกประเภทขยะ</option>{% for type in type_options %}<option value="{{ type }}" {% if type_filter == type %}selected{% endif %}>{{ type|waste_th }}</option>{% endfor %}</select>
+        </div>
+        <div class="flex flex-col gap-1.5">
+          <label for="filter-staff" class="text-xs font-semibold text-gray-600">ผู้เก็บขยะ</label>
+          <select id="filter-staff" name="staff" class="h-10 min-w-40 rounded border border-gray-200 bg-white px-3 text-sm"><option value="All">ทุกผู้ใช้งาน</option>{% for staff in staff_options %}<option value="{{ staff }}" {% if staff_filter == staff %}selected{% endif %}>{{ staff }}</option>{% endfor %}</select>
+        </div>
+        <div class="flex min-w-[220px] flex-1 flex-col gap-1.5">
+          <label for="filter-search" class="text-xs font-semibold text-gray-600">ค้นหาข้อมูล</label>
+          <div class="flex h-10 items-center gap-2 rounded border border-gray-200 bg-white px-3 focus-within:border-blue-400"><i data-lucide="search" class="h-4 w-4 text-gray-400"></i><input id="filter-search" type="text" name="search" value="{{ search }}" placeholder="ผู้ใช้งาน เครื่อง หรือประเภทขยะ" class="w-full text-sm outline-none"/></div>
+        </div>
+        <button type="submit" class="h-10 px-4 text-white rounded-lg text-sm font-medium" style="background:{{ report_color }}">กรองข้อมูล</button><a href="/statistics/" class="flex h-10 items-center px-4 bg-gray-100 text-gray-600 rounded-lg text-sm font-medium hover:bg-gray-200">ล้างค่า</a>
       </form>
     </div>
-    <div class="overflow-x-auto"><table class="w-full text-left border-collapse"><thead><tr class="bg-gray-50 text-gray-600 text-sm border-b border-gray-100"><th class="p-4 font-medium">Date</th><th class="p-4 font-medium">Time</th>{% if is_system_admin %}<th class="p-4 font-medium">Organization</th>{% endif %}<th class="p-4 font-medium">Machine</th><th class="p-4 font-medium">Type</th><th class="p-4 font-medium text-right">Weight (kg)</th><th class="p-4 font-medium">Staff</th></tr></thead><tbody class="divide-y divide-gray-100">
-      {% for row in history %}<tr class="hover:bg-blue-50/50 transition-colors text-sm text-gray-700"><td class="p-4">{{ row.date|ddmmyy }}</td><td class="p-4 text-gray-500">{{ row.time }}</td>{% if is_system_admin %}<td class="p-4">{{ row.organization_name }}</td>{% endif %}<td class="p-4 font-medium">{{ row.machine }}</td><td class="p-4">{{ row.type }}</td><td class="p-4 text-right font-mono">{{ row.weight }}</td><td class="p-4">{{ row.staff }}</td></tr>{% empty %}<tr><td colspan="7" class="p-8 text-center text-gray-400">No report rows found.</td></tr>{% endfor %}
-    </tbody></table></div>
+    <div class="report-table-wrap overflow-x-auto"><table class="report-table w-full text-left border-collapse"><thead><tr class="text-white text-sm border-b border-gray-100" style="background:{{ report_color }}"><th class="p-4 font-medium text-center">ลำดับ</th><th class="p-4 font-medium">วันที่</th><th class="p-4 font-medium">เวลา</th>{% if is_system_admin %}<th class="p-4 font-medium">หน่วยงาน</th>{% endif %}<th class="p-4 font-medium">เครื่อง</th><th class="p-4 font-medium">ประเภทขยะ</th><th class="p-4 font-medium text-right">น้ำหนัก (กก.)</th><th class="p-4 font-medium">ผู้ใช้งาน</th></tr></thead><tbody class="no-print divide-y divide-gray-100">
+      {% for row in history %}<tr class="transition-colors text-sm text-gray-700 hover:bg-gray-50" style="border-left:5px solid {{ row.card_color }}"><td class="report-nowrap p-4 text-center">{{ statistics_pagination.start_index|add:forloop.counter0 }}</td><td class="report-nowrap p-4">{{ row.date|ddmmyy }}</td><td class="report-nowrap p-4 text-gray-500">{{ row.time }}</td>{% if is_system_admin %}<td class="p-4"><span class="px-2 py-1 rounded text-xs font-medium text-white" style="background:{{ row.card_color }}">{{ row.organization_name }}</span></td>{% endif %}<td class="p-4 font-medium">{{ row.machine }}</td><td class="p-4">{{ row.type|waste_th }}</td><td class="report-nowrap p-4 text-right font-mono">{{ row.weight|floatformat:2 }}</td><td class="p-4">{{ row.staff }}</td></tr>{% empty %}<tr><td colspan="{% if is_system_admin %}8{% else %}7{% endif %}" class="p-8 text-center text-gray-400">ไม่พบข้อมูลรายงาน</td></tr>{% endfor %}
+    </tbody><tbody class="print-only">{% for row in history_all %}<tr style="border-left:5px solid {{ row.card_color }}"><td class="report-nowrap p-4 text-center">{{ forloop.counter }}</td><td class="report-nowrap p-4">{{ row.date|ddmmyy }}</td><td class="report-nowrap p-4 text-gray-500">{{ row.time }}</td>{% if is_system_admin %}<td class="p-4"><span class="px-2 py-1 rounded text-xs font-medium text-white" style="background:{{ row.card_color }}">{{ row.organization_name }}</span></td>{% endif %}<td class="p-4 font-medium">{{ row.machine }}</td><td class="p-4">{{ row.type|waste_th }}</td><td class="report-nowrap p-4 text-right font-mono">{{ row.weight|floatformat:2 }}</td><td class="p-4">{{ row.staff }}</td></tr>{% empty %}<tr><td colspan="{% if is_system_admin %}8{% else %}7{% endif %}" class="p-8 text-center text-gray-400">ไม่พบข้อมูลรายงาน</td></tr>{% endfor %}</tbody><tfoot><tr><td colspan="{% if is_system_admin %}6{% else %}5{% endif %}" class="p-4 text-right">รวมทั้งหมด {{ statistics_pagination.total_count }} รายการ</td><td class="report-nowrap p-4 text-right font-mono">{{ total_weight|floatformat:2 }}</td><td class="p-4">กก.</td></tr></tfoot></table></div>
+    <div class="no-print">{% include "core/_pagination.html" with pagination=statistics_pagination %}</div>
   </div>
+  <footer class="print-only report-print-footer"><span>RecycleAdmin · รายงานการเก็บขยะรีไซเคิล</span><span>สร้างเมื่อ {{ generated_at|date:"d/m/Y H:i" }} น.</span></footer>
 </div>
-<script>lucide.createIcons();</script>
+<script>
+function printStatisticsReport(){
+  const previousTitle=document.title;
+  const datePart='{{ generated_at|date:"Y-m-d" }}';
+  document.title=`RecycleAdmin-report-${datePart}`;
+  let restored=false;
+  const restoreTitle=()=>{if(!restored){document.title=previousTitle;restored=true;}};
+  window.addEventListener('afterprint',restoreTitle,{once:true});
+  window.setTimeout(restoreTitle,30000);
+  window.print();
+}
+lucide.createIcons();
+window.addEventListener('DOMContentLoaded',()=>{bindAdminDatePicker('filter-start','filter-start-picker');bindAdminDatePicker('filter-end','filter-end-picker')});
+</script>
 {% endblock %}
 
