@@ -125,7 +125,7 @@
     <div class="overflow-x-auto">
       <table class="w-full text-left">
         <thead class="bg-gray-50 text-gray-600 text-sm">
-          <tr><th class="p-4">ชื่อ</th><th class="p-4">หน่วยงาน</th><th class="p-4">สิทธิ์</th><th class="p-4">สถานะ</th><th class="p-4 text-center">สถานะบัญชี</th></tr>
+          <tr><th class="p-4">ชื่อ</th><th class="p-4">หน่วยงาน</th><th class="p-4">สิทธิ์</th><th class="p-4 text-center">สถานะบัญชี</th></tr>
         </thead>
         <tbody class="divide-y divide-gray-100">
           {% for user in active_users %}
@@ -157,13 +157,11 @@
               {% endif %}
             </td>
             <td class="p-4">
-              <span class="flex items-center gap-1 text-sm font-medium {% if user.status == 'Active' %}text-green-600{% else %}text-red-500{% endif %}">
+              <div class="flex items-center justify-center gap-3">
+              <span class="flex min-w-16 items-center gap-1 text-sm font-medium {% if user.status == 'Active' %}text-green-600{% else %}text-red-500{% endif %}">
                 <span class="w-2 h-2 rounded-full {% if user.status == 'Active' %}bg-green-500{% else %}bg-red-500{% endif %}"></span>
                 {% if user.status == 'Active' %}ใช้งาน{% else %}ระงับ{% endif %}
               </span>
-            </td>
-            <td class="p-4">
-              <div class="flex justify-center">
                 {% if user.can_manage %}
                 <form method="post" action="/users/action/" class="flex items-center gap-2">
                   {% csrf_token %}
@@ -182,7 +180,7 @@
             </td>
           </tr>
           {% empty %}
-          <tr><td colspan="5" class="p-8 text-center text-gray-400">ไม่พบผู้ใช้งาน</td></tr>
+          <tr><td colspan="4" class="p-8 text-center text-gray-400">ไม่พบผู้ใช้งาน</td></tr>
           {% endfor %}
         </tbody>
       </table>
