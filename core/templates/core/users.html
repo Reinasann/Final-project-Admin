@@ -1,4 +1,4 @@
-{% extends "core/base.html" %}
+{% extends base_template %}
 {% block content %}
 <div class="p-6 space-y-6">
   <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -62,14 +62,14 @@
     <input type="hidden" name="page_size" value="{{ users_pagination.page_size }}"/>
     <div>
       <label class="block mb-1 text-xs font-bold text-gray-500 uppercase">มุมมองผู้ใช้งาน</label>
-      <select name="view" onchange="this.form.submit()" class="w-full px-3 py-2 border border-gray-200 rounded-lg bg-gray-50 text-sm">
+      <select name="view" onchange="this.form.requestSubmit()" class="w-full px-3 py-2 border border-gray-200 rounded-lg bg-gray-50 text-sm">
         <option value="admins" {% if view_scope == 'admins' %}selected{% endif %}>เฉพาะแอดมินหน่วยงาน</option>
         <option value="all" {% if view_scope == 'all' %}selected{% endif %}>ดูผู้ใช้งานทั้งหมด</option>
       </select>
     </div>
     <div>
       <label class="block mb-1 text-xs font-bold text-gray-500 uppercase">หน่วยงาน</label>
-      <select name="organization" onchange="this.form.submit()" class="w-full px-3 py-2 border border-gray-200 rounded-lg bg-gray-50 text-sm">
+      <select name="organization" onchange="this.form.requestSubmit()" class="w-full px-3 py-2 border border-gray-200 rounded-lg bg-gray-50 text-sm">
         <option value="All">ทุกหน่วยงาน</option>
         {% for org in organizations %}<option value="{{ org.id }}" {% if organization_filter == org.id %}selected{% endif %}>{{ org.name }}</option>{% endfor %}
       </select>
@@ -77,7 +77,7 @@
     {% if view_scope == 'all' %}
     <div>
       <label class="block mb-1 text-xs font-bold text-gray-500 uppercase">สิทธิ์ผู้ใช้งาน</label>
-      <select name="role" onchange="this.form.submit()" class="w-full px-3 py-2 border border-gray-200 rounded-lg bg-gray-50 text-sm">
+      <select name="role" onchange="this.form.requestSubmit()" class="w-full px-3 py-2 border border-gray-200 rounded-lg bg-gray-50 text-sm">
         <option value="All" {% if role_filter == 'All' %}selected{% endif %}>ทุกสิทธิ์</option>
         <option value="Admin" {% if role_filter == 'Admin' %}selected{% endif %}>แอดมินหน่วยงาน</option>
         <option value="Collector" {% if role_filter == 'Collector' %}selected{% endif %}>ผู้เก็บขยะ</option>
@@ -113,7 +113,7 @@
         <input type="hidden" name="role" value="{{ role_filter }}"/>
         <div>
           <label class="block mb-1 text-xs font-bold text-gray-500 uppercase">สถานะ</label>
-          <select name="status" onchange="this.form.submit()" class="px-3 py-1.5 border rounded text-sm bg-gray-50">
+          <select name="status" onchange="this.form.requestSubmit()" class="px-3 py-1.5 border rounded text-sm bg-gray-50">
             <option value="All" {% if status_filter == 'All' %}selected{% endif %}>ทุกสถานะ</option>
             <option value="Active" {% if status_filter == 'Active' %}selected{% endif %}>ใช้งาน</option>
             <option value="Suspended" {% if status_filter == 'Suspended' %}selected{% endif %}>ระงับ</option>

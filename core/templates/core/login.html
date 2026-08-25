@@ -15,13 +15,20 @@
     <div class="mb-5 h-12 rounded-xl bg-gray-200"></div><div class="mb-6 h-12 rounded-xl bg-gray-200"></div><div class="h-12 rounded-xl bg-gray-200"></div>
   </div>
 </div>
+<div id="login-progress" class="fixed inset-0 z-[60] hidden items-center justify-center bg-gray-100/90 p-6 backdrop-blur-sm" role="status" aria-live="polite">
+  <div class="w-full max-w-sm rounded-2xl border border-gray-200 bg-white p-6 shadow-xl">
+    <div class="mb-3 flex items-center justify-between gap-4"><span class="font-semibold text-gray-800">กำลังเข้าสู่ระบบ</span><span id="login-progress-value" class="text-sm font-bold text-blue-600">8%</span></div>
+    <div class="h-2.5 overflow-hidden rounded-full bg-blue-100"><div id="login-progress-bar" class="h-full w-0 rounded-full bg-blue-600 transition-[width] duration-500 ease-out"></div></div>
+    <p class="mt-3 text-sm text-gray-500">กำลังเตรียมข้อมูลหน้า Dashboard...</p>
+  </div>
+</div>
 <div class="bg-white p-8 rounded-2xl shadow-lg w-full max-w-md border border-gray-200">
   <div class="text-center mb-8">
     <div class="w-16 h-16 bg-blue-600 rounded-2xl flex items-center justify-center text-white font-bold text-3xl mx-auto mb-4">R</div>
     <h1 class="text-2xl font-bold text-gray-800">Recycle Admin</h1>
     <p class="text-gray-500">เข้าสู่ระบบสำหรับแอดมินสูงสุดหรือแอดมินหน่วยงาน</p>
   </div>
-  {% if error %}<div class="mb-4 p-3 bg-red-50 border border-red-200 text-red-700 rounded-lg text-sm">{{ error }}</div>{% endif %}
+  <div id="login-error" class="{% if not error %}hidden {% endif %}mb-4 p-3 bg-red-50 border border-red-200 text-red-700 rounded-lg text-sm" role="alert">{{ error }}</div>
   <form id="login-form" method="post" class="space-y-5">
     {% csrf_token %}
     <div>
@@ -36,6 +43,57 @@
   </form>
   <p class="text-center text-xs text-gray-400 mt-6">ระบบตัวอย่างนี้ใช้อีเมลและรหัสผ่านใดก็ได้</p>
 </div>
-<script>function toggleOrg(){document.getElementById('org-field')?.classList.toggle('hidden',document.getElementById('role')?.value==='System admin')}function togglePassword(){const input=document.getElementById('password');input.type=input.type==='password'?'text':'password'}function showLoginSkeleton(){const skeleton=document.getElementById('login-page-skeleton');skeleton.classList.remove('hidden','opacity-0')}function hideLoginSkeleton(){const skeleton=document.getElementById('login-page-skeleton');skeleton.classList.add('opacity-0');setTimeout(()=>skeleton.classList.add('hidden'),210)}window.addEventListener('pageshow',()=>requestAnimationFrame(hideLoginSkeleton));document.getElementById('login-form').addEventListener('submit',showLoginSkeleton);lucide.createIcons();</script>
+<script>
+function toggleOrg(){document.getElementById('org-field')?.classList.toggle('hidden',document.getElementById('role')?.value==='System admin')}
+function togglePassword(){const input=document.getElementById('password');input.type=input.type==='password'?'text':'password'}
+function hideLoginSkeleton(){const skeleton=document.getElementById('login-page-skeleton');skeleton.classList.add('opacity-0');setTimeout(()=>skeleton.classList.add('hidden'),210)}
+function setLoginProgress(percent){
+  document.getElementById('login-progress-bar').style.width=`${percent}%`;
+  document.getElementById('login-progress-value').textContent=`${percent}%`;
+}
+function showLoginProgress(){
+  const progress=document.getElementById('login-progress');
+  progress.classList.remove('hidden');progress.classList.add('flex');
+  setLoginProgress(8);
+  requestAnimationFrame(()=>setLoginProgress(82));
+}
+function hideLoginProgress(){
+  const progress=document.getElementById('login-progress');
+  progress.classList.add('hidden');progress.classList.remove('flex');
+  setLoginProgress(0);
+}
+window.addEventListener('pageshow',()=>requestAnimationFrame(()=>{hideLoginSkeleton();hideLoginProgress()}));
+document.getElementById('login-form').addEventListener('submit',async event=>{
+  event.preventDefault();
+  const form=event.currentTarget;
+  const button=form.querySelector('button[type="submit"]');
+  const errorBox=document.getElementById('login-error');
+  if(button.disabled)return;
+  button.disabled=true;errorBox.classList.add('hidden');showLoginProgress();
+  let navigating=false;
+  try{
+    const response=await fetch(form.action||window.location.href,{
+      method:'POST',body:new FormData(form),
+      headers:{'X-Requested-With':'XMLHttpRequest','Accept':'text/html'},
+    });
+    const html=await response.text();
+    const destination=new URL(response.url,window.location.href);
+    if(response.ok&&destination.pathname==='/dashboard/'){
+      navigating=true;setLoginProgress(100);
+      window.setTimeout(()=>window.location.assign(destination.href),650);
+      return;
+    }
+    const parsed=new DOMParser().parseFromString(html,'text/html');
+    const message=parsed.getElementById('login-error')?.textContent.trim()||'ไม่สามารถเข้าสู่ระบบได้';
+    errorBox.textContent=message;errorBox.classList.remove('hidden');
+  }catch(error){
+    errorBox.textContent='ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์ได้ กรุณาลองอีกครั้ง';
+    errorBox.classList.remove('hidden');
+  }finally{
+    if(!navigating){button.disabled=false;hideLoginProgress();}
+  }
+});
+lucide.createIcons();
+</script>
 </body>
 </html>

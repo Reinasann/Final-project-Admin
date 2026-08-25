@@ -286,6 +286,11 @@ def dashboard_chart_payload(machines, history):
 def render_admin(request, template_name, context):
     context.setdefault('active_tab_page', context.get('active_tab'))
     context.update({
+        'base_template': (
+            'core/base_ajax.html'
+            if request.headers.get('X-Requested-With') == 'XMLHttpRequest'
+            else 'core/base.html'
+        ),
         'is_system_admin': is_system_admin(request),
         'user_role': request.session.get('user_role', ORG_ADMIN),
         'user_role_th': thai_role(request.session.get('user_role', ORG_ADMIN)),

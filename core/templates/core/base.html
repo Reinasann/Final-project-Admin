@@ -6,6 +6,27 @@
 <title>RecycleAdmin</title>
 <script src="https://cdn.tailwindcss.com"></script>
 <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
+<script>
+(() => {
+  const nativeAddEventListener=EventTarget.prototype.addEventListener;
+  window.__adminPageAbortController=null;
+  window.__adminCapturePageListeners=false;
+  EventTarget.prototype.addEventListener=function(type,listener,options){
+    if(!window.__adminCapturePageListeners||!window.__adminPageAbortController){
+      return nativeAddEventListener.call(this,type,listener,options);
+    }
+    const trackedOptions=typeof options==='boolean'?{capture:options}:{...(options||{})};
+    if(!trackedOptions.signal)trackedOptions.signal=window.__adminPageAbortController.signal;
+    return nativeAddEventListener.call(this,type,listener,trackedOptions);
+  };
+  window.__adminStartPageRuntime=()=>{
+    window.__adminPageAbortController?.abort();
+    window.__adminPageAbortController=new AbortController();
+    window.__adminCapturePageListeners=true;
+  };
+  window.__adminEndPageRuntime=()=>{window.__adminCapturePageListeners=false;};
+})();
+</script>
 <style>
   @import url('https://fonts.googleapis.com/css2?family=Sarabun:wght@400;500;600;700&display=swap');
   html, body { height: 100%; margin: 0; overflow: hidden; }
@@ -33,6 +54,9 @@
 </style>
 </head>
 <body class="text-gray-800" style="background:var(--page-bg)">
+<div id="admin-ajax-progress" class="pointer-events-none fixed left-64 right-0 top-0 z-[120] hidden h-1 overflow-hidden bg-blue-100 no-print" role="progressbar" aria-label="กำลังโหลดข้อมูล" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0">
+  <div id="admin-ajax-progress-bar" class="h-full w-0 bg-blue-600 transition-[width] duration-300 ease-out"></div>
+</div>
 <div id="admin-page-skeleton" class="fixed inset-y-0 right-0 left-64 z-[100] bg-gray-50 transition-opacity duration-200 no-print" role="status" aria-live="polite" aria-label="กำลังโหลดข้อมูล">
   <div class="h-full w-full overflow-hidden p-5 md:p-7">
     <div class="skeleton-pulse mx-auto max-w-7xl">
@@ -90,7 +114,7 @@
       <a href="/logout/" class="flex items-center gap-3 {% if is_system_admin %}text-red-500 hover:bg-red-50{% else %}text-red-100 hover:bg-white/10{% endif %} w-full p-2 rounded-lg transition-colors"><i data-lucide="log-out" class="w-5 h-5"></i><span class="font-medium">ออกจากระบบ</span></a>
     </div>
   </aside>
-  <main class="flex-1 overflow-y-auto">{% block content %}{% endblock %}</main>
+  <main id="admin-main-content" class="flex-1 overflow-y-auto"><script>window.__adminStartPageRuntime();</script>{% block content %}{% endblock %}<script>window.__adminEndPageRuntime();</script></main>
 </div>
 <script>
 lucide.createIcons();
@@ -147,19 +171,163 @@ function updateAdminPageSize(sizeParam,pageParam,value){
   const url=new URL(window.location.href);
   url.searchParams.set(sizeParam,value);
   url.searchParams.set(pageParam,'1');
-  window.location.assign(url.toString());
+  adminAjaxNavigate(url.toString(),{historyMode:'push'});
+}
+let adminAjaxRequestController=null;
+let adminAjaxProgressTimer=null;
+const adminLoadedScripts=new Set(Array.from(document.scripts).filter(script=>script.src).map(script=>script.src));
+const adminLoadedStyles=new Set(Array.from(document.querySelectorAll('link[rel="stylesheet"]')).map(link=>link.href));
+
+function showAdminAjaxProgress(){
+  const progress=document.getElementById('admin-ajax-progress');
+  const bar=document.getElementById('admin-ajax-progress-bar');
+  window.clearTimeout(adminAjaxProgressTimer);
+  progress.classList.remove('hidden');
+  progress.setAttribute('aria-valuenow','12');
+  bar.style.width='12%';
+  window.requestAnimationFrame(()=>{bar.style.width='78%';progress.setAttribute('aria-valuenow','78');});
+}
+function finishAdminAjaxProgress(){
+  const progress=document.getElementById('admin-ajax-progress');
+  const bar=document.getElementById('admin-ajax-progress-bar');
+  bar.style.width='100%';
+  progress.setAttribute('aria-valuenow','100');
+  adminAjaxProgressTimer=window.setTimeout(()=>{
+    progress.classList.add('hidden');
+    bar.style.width='0';
+    progress.setAttribute('aria-valuenow','0');
+  },220);
+}
+function showAdminAjaxError(message){
+  document.getElementById('toast-container')?.remove();
+  const toast=document.createElement('div');
+  toast.id='toast-container';
+  toast.className='fixed top-5 right-5 z-[130] rounded-xl border-l-4 border-red-500 bg-white px-4 py-3 text-sm text-red-700 shadow-lg no-print';
+  toast.setAttribute('role','alert');
+  toast.textContent=message;
+  document.body.appendChild(toast);
+  window.setTimeout(()=>toast.remove(),4000);
+}
+function updateAdminNavigation(activeTab){
+  document.querySelectorAll('[data-admin-nav-link]').forEach(link=>{
+    const active=link.dataset.adminTab===activeTab;
+    link.classList.toggle('font-medium',active);
+    link.setAttribute('style',active?link.dataset.activeStyle:link.dataset.inactiveStyle);
+    if(active)link.setAttribute('aria-current','page');else link.removeAttribute('aria-current');
+  });
+}
+function adminLoadStylesheet(href){
+  const absolute=new URL(href,window.location.href).href;
+  if(adminLoadedStyles.has(absolute))return Promise.resolve();
+  adminLoadedStyles.add(absolute);
+  return new Promise((resolve,reject)=>{
+    const link=document.createElement('link');link.rel='stylesheet';link.href=absolute;
+    link.onload=resolve;link.onerror=()=>reject(new Error('โหลดรูปแบบหน้าไม่สำเร็จ'));
+    document.head.appendChild(link);
+  });
+}
+function adminLoadExternalScript(src){
+  const absolute=new URL(src,window.location.href).href;
+  if(adminLoadedScripts.has(absolute))return Promise.resolve();
+  adminLoadedScripts.add(absolute);
+  return new Promise((resolve,reject)=>{
+    const script=document.createElement('script');script.src=absolute;script.async=false;
+    script.onload=resolve;script.onerror=()=>reject(new Error('โหลดส่วนประกอบหน้าไม่สำเร็จ'));
+    document.head.appendChild(script);
+  });
+}
+function adminRunInlineScript(source,index){
+  const names=Array.from(source.matchAll(/^\s*(?:async\s+)?function\s+([A-Za-z_$][\w$]*)\s*\(/gm),match=>match[1]);
+  const exports=names.length?`\nObject.assign(window,{${names.join(',')}});`:'';
+  const execute=new Function(`${source}${exports}\n//# sourceURL=admin-ajax-page-${index}.js`);
+  execute();
+}
+async function adminApplyAjaxResponse(html,responseUrl,historyMode){
+  const parsed=new DOMParser().parseFromString(html,'text/html');
+  const responseRoot=parsed.getElementById('admin-ajax-response');
+  if(!responseRoot){window.location.assign(responseUrl);return false;}
+  const toast=responseRoot.querySelector('#toast-container');
+  toast?.remove();
+  const stylesheetLinks=Array.from(responseRoot.querySelectorAll('link[rel="stylesheet"]'));
+  stylesheetLinks.forEach(link=>link.remove());
+  const executableScripts=Array.from(responseRoot.querySelectorAll('script')).filter(script=>{
+    const type=(script.getAttribute('type')||'').toLowerCase();
+    return !type||type==='text/javascript'||type==='application/javascript'||type==='module';
+  });
+  executableScripts.forEach(script=>script.remove());
+  await Promise.all(stylesheetLinks.map(link=>adminLoadStylesheet(link.href)));
+  window.__adminStartPageRuntime();
+  const main=document.getElementById('admin-main-content');
+  main.replaceChildren(...Array.from(responseRoot.childNodes).map(node=>document.adoptNode(node)));
+  try{
+    for(const script of executableScripts){
+      if(script.src)await adminLoadExternalScript(script.src);
+      else adminRunInlineScript(script.textContent,executableScripts.indexOf(script));
+    }
+  }finally{
+    window.__adminEndPageRuntime();
+  }
+  document.getElementById('toast-container')?.remove();
+  if(toast){
+    document.body.appendChild(document.adoptNode(toast));
+    window.setTimeout(()=>toast.remove(),4000);
+  }
+  updateAdminNavigation(responseRoot.dataset.activeTab);
+  if(parsed.title)document.title=parsed.title;
+  if(historyMode==='push')window.history.pushState({adminAjax:true},'',responseUrl);
+  else if(historyMode==='replace')window.history.replaceState({adminAjax:true},'',responseUrl);
+  main.scrollTop=0;
+  lucide.createIcons();
+  return true;
+}
+async function adminAjaxNavigate(url,{method='GET',body=null,historyMode='push'}={}){
+  adminAjaxRequestController?.abort();
+  const controller=new AbortController();
+  adminAjaxRequestController=controller;
+  showAdminAjaxProgress();
+  try{
+    const response=await fetch(url,{
+      method,body,signal:controller.signal,
+      headers:{'X-Requested-With':'XMLHttpRequest','Accept':'text/html'},
+    });
+    if(!response.ok)throw new Error(`ไม่สามารถโหลดข้อมูลได้ (${response.status})`);
+    const html=await response.text();
+    await adminApplyAjaxResponse(html,response.url,historyMode);
+  }catch(error){
+    if(error.name!=='AbortError')showAdminAjaxError(error.message||'ไม่สามารถโหลดข้อมูลได้');
+  }finally{
+    if(adminAjaxRequestController===controller){adminAjaxRequestController=null;finishAdminAjaxProgress();}
+  }
+}
+function adminAjaxSubmitForm(form,submitter){
+  const method=(form.method||'GET').toUpperCase();
+  const formData=new FormData(form);
+  if(submitter?.name&&!formData.has(submitter.name))formData.append(submitter.name,submitter.value);
+  const url=new URL(form.action||window.location.href,window.location.href);
+  if(method==='GET'){
+    url.search='';
+    formData.forEach((value,key)=>url.searchParams.append(key,String(value)));
+    return adminAjaxNavigate(url.toString(),{historyMode:'push'});
+  }
+  return adminAjaxNavigate(url.toString(),{method,body:formData,historyMode:'replace'});
 }
 window.addEventListener('pageshow',()=>window.requestAnimationFrame(hideAdminSkeleton));
 document.addEventListener('click',event=>{
+  if(event.defaultPrevented||event.button!==0||event.metaKey||event.ctrlKey||event.shiftKey||event.altKey)return;
   const link=event.target.closest('a[href]');
-  if(!link||link.target==='_blank'||link.hasAttribute('download'))return;
+  if(!link||link.target==='_blank'||link.hasAttribute('download')||link.hasAttribute('data-no-ajax'))return;
   const url=new URL(link.href,window.location.href);
-  if(url.origin!==window.location.origin||url.hash||url.pathname.includes('/export/'))return;
-  showAdminSkeleton();
+  if(url.origin!==window.location.origin||url.hash||url.pathname.includes('/export/')||url.pathname==='/logout/')return;
+  event.preventDefault();
+  adminAjaxNavigate(url.toString(),{historyMode:'push'});
 });
 document.addEventListener('submit',event=>{
-  if(!event.defaultPrevented)showAdminSkeleton();
+  const form=event.target;
+  if(event.defaultPrevented||form.hasAttribute('data-no-ajax')||form.target==='_blank')return;
+  event.preventDefault();
+  adminAjaxSubmitForm(form,event.submitter);
 });
+window.addEventListener('popstate',()=>adminAjaxNavigate(window.location.href,{historyMode:'none'}));
 window.addEventListener('beforeunload',showAdminSkeleton);
 </script>
 </body>

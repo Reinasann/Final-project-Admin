@@ -27,6 +27,73 @@ class DateFormattingTests(TestCase):
         self.assertEqual(display_date("2026-08-05"), "05/08/2026")
 
 
+class AdminAjaxNavigationTests(TestCase):
+    def setUp(self):
+        self.organization = Organization.objects.create(
+            id="org-ajax", name="AJAX Organization", card_color="#2563eb",
+        )
+        self.admin = User(
+            id="SA-AJAX", name="AJAX Admin", email="ajax-admin@example.com",
+            role=User.Role.SUPER_ADMIN, status=User.Status.ACTIVE,
+        )
+        self.admin.set_password("password123")
+        self.admin.save()
+        response = self.client.post("/", data={
+            "email": self.admin.email,
+            "password": "password123",
+        })
+        self.assertRedirects(response, "/dashboard/")
+
+    def test_all_admin_pages_support_ajax_partial_responses(self):
+        expected_tabs = {
+            "/dashboard/": "dashboard",
+            "/organizations/": "organizations",
+            "/statistics/": "statistics",
+            "/machines/": "machines",
+            "/users/": "users",
+            "/issues/": "issues",
+        }
+
+        for url, active_tab in expected_tabs.items():
+            with self.subTest(url=url):
+                response = self.client.get(
+                    url,
+                    HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+                )
+                self.assertEqual(response.status_code, 200)
+                self.assertContains(response, 'id="admin-ajax-response"')
+                self.assertContains(response, f'data-active-tab="{active_tab}"')
+                self.assertNotContains(response, 'class="app-shell')
+
+    def test_normal_admin_response_keeps_the_full_layout(self):
+        response = self.client.get("/dashboard/")
+
+        self.assertContains(response, 'class="app-shell')
+        self.assertContains(response, 'id="admin-main-content"')
+
+    def test_ajax_post_redirect_finishes_as_partial_content(self):
+        response = self.client.post(
+            "/organizations/add/",
+            data={"name": "Created with AJAX", "card_color": "#f97316"},
+            follow=True,
+            HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertContains(response, 'id="admin-ajax-response"')
+        self.assertContains(response, "เพิ่มหน่วยงานเรียบร้อยแล้ว")
+        self.assertTrue(Organization.objects.filter(name="Created with AJAX").exists())
+
+    def test_login_uses_ajax_and_progress_bar(self):
+        self.client.get("/logout/")
+
+        response = self.client.get("/")
+
+        self.assertContains(response, 'id="login-progress"')
+        self.assertContains(response, 'id="login-progress-bar"')
+        self.assertContains(response, "X-Requested-With':'XMLHttpRequest")
+
+
 class UserManagementPermissionTests(TestCase):
     def setUp(self):
         self.organization_a = Organization.objects.create(

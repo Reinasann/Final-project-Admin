@@ -1,0 +1,12 @@
+<div id="admin-ajax-response" data-active-tab="{{ active_tab_page }}">
+  {% if toast %}
+  <div id="toast-container" class="fixed top-5 right-5 z-50 flex flex-col gap-3 no-print">
+    <div class="min-w-[300px] p-4 rounded-xl shadow-lg border-l-4 flex items-start gap-3 bg-white {% if toast.type == 'success' %}border-green-500{% elif toast.type == 'error' %}border-red-500{% else %}border-blue-500{% endif %}">
+      <div class="mt-0.5 {% if toast.type == 'success' %}text-green-500{% elif toast.type == 'error' %}text-red-500{% else %}text-blue-500{% endif %}"><i data-lucide="info" class="w-5 h-5"></i></div>
+      <div class="flex-1"><h4 class="font-bold text-sm">{{ toast.title }}</h4><p class="text-xs text-gray-500 mt-1">{{ toast.message }}</p></div>
+      <button onclick="this.closest('#toast-container').remove()" class="text-gray-400 hover:text-gray-600"><i data-lucide="x" class="w-4 h-4"></i></button>
+    </div>
+  </div>
+  {% endif %}
+  {% block content %}{% endblock %}
+</div>

@@ -1,4 +1,4 @@
-{% extends "core/base.html" %}
+{% extends base_template %}
 {% load core_extras %}
 {% block content %}
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
@@ -55,8 +55,8 @@
     <input type="hidden" name="device_page_size" value="{{ devices_pagination.page_size }}"/>
     {% if show_devices %}<input type="hidden" name="devices" value="1"/>{% endif %}
     <div class="relative flex-1 min-w-[220px]"><i data-lucide="search" class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4"></i><input type="text" name="search" value="{{ search }}" placeholder="ค้นหาชื่อเครื่องหรือรหัสเครื่อง" class="w-full pl-10 pr-4 py-2 rounded-lg border border-gray-200 outline-none"/></div>
-    <select name="status" onchange="this.form.submit()" class="px-4 py-2 border border-gray-200 rounded-lg bg-gray-50 text-sm"><option value="All" {% if status_filter == 'All' %}selected{% endif %}>ทุกสถานะ</option><option value="Online" {% if status_filter == 'Online' %}selected{% endif %}>เปิดใช้งาน</option><option value="Offline" {% if status_filter == 'Offline' %}selected{% endif %}>ปิดใช้งาน</option></select>
-    {% if is_system_admin %}<select name="organization" onchange="this.form.submit()" class="px-4 py-2 border border-gray-200 rounded-lg bg-gray-50 text-sm"><option value="All">ทุกหน่วยงาน</option>{% for org in organizations %}<option value="{{ org.id }}" {% if organization_filter == org.id %}selected{% endif %}>{{ org.name }}</option>{% endfor %}</select>{% endif %}
+    <select name="status" onchange="this.form.requestSubmit()" class="px-4 py-2 border border-gray-200 rounded-lg bg-gray-50 text-sm"><option value="All" {% if status_filter == 'All' %}selected{% endif %}>ทุกสถานะ</option><option value="Online" {% if status_filter == 'Online' %}selected{% endif %}>เปิดใช้งาน</option><option value="Offline" {% if status_filter == 'Offline' %}selected{% endif %}>ปิดใช้งาน</option></select>
+    {% if is_system_admin %}<select name="organization" onchange="this.form.requestSubmit()" class="px-4 py-2 border border-gray-200 rounded-lg bg-gray-50 text-sm"><option value="All">ทุกหน่วยงาน</option>{% for org in organizations %}<option value="{{ org.id }}" {% if organization_filter == org.id %}selected{% endif %}>{{ org.name }}</option>{% endfor %}</select>{% endif %}
     <button type="submit" class="px-4 py-2 accent-soft rounded-lg text-sm font-medium">ค้นหา</button>
   </form>
 
@@ -268,7 +268,7 @@ function scrollToMachineCard(machineId) {
     url.searchParams.set('status', 'All');
     url.searchParams.set('organization', 'All');
     url.searchParams.set('page', '1');
-    window.location.assign(url.toString());
+    adminAjaxNavigate(url.toString(), {historyMode: 'push'});
     return;
   }
   closeOverviewMapModal();

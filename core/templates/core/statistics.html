@@ -1,4 +1,4 @@
-{% extends "core/base.html" %}
+{% extends base_template %}
 {% load core_extras %}
 {% block content %}
 <style>
@@ -83,7 +83,7 @@
         {% if is_system_admin %}
         <div class="flex flex-col gap-1.5">
           <label for="filter-organization" class="text-xs font-semibold text-gray-600">หน่วยงาน</label>
-          <select id="filter-organization" name="organization" onchange="this.form.submit()" class="h-10 min-w-40 rounded border border-gray-200 bg-white px-3 text-sm"><option value="All">ทุกหน่วยงาน</option>{% for org in organizations %}<option value="{{ org.id }}" {% if organization_filter == org.id %}selected{% endif %}>{{ org.name }}</option>{% endfor %}</select>
+          <select id="filter-organization" name="organization" onchange="this.form.requestSubmit()" class="h-10 min-w-40 rounded border border-gray-200 bg-white px-3 text-sm"><option value="All">ทุกหน่วยงาน</option>{% for org in organizations %}<option value="{{ org.id }}" {% if organization_filter == org.id %}selected{% endif %}>{{ org.name }}</option>{% endfor %}</select>
         </div>
         {% endif %}
         <div class="flex flex-col gap-1.5">
@@ -124,7 +124,8 @@ function printStatisticsReport(){
   window.print();
 }
 lucide.createIcons();
-window.addEventListener('DOMContentLoaded',()=>{bindAdminDatePicker('filter-start','filter-start-picker');bindAdminDatePicker('filter-end','filter-end-picker')});
+const initStatisticsDatePickers=()=>{bindAdminDatePicker('filter-start','filter-start-picker');bindAdminDatePicker('filter-end','filter-end-picker')};
+if(document.readyState==='loading')window.addEventListener('DOMContentLoaded',initStatisticsDatePickers,{once:true});else initStatisticsDatePickers();
 </script>
 {% endblock %}
 
