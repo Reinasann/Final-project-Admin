@@ -83,6 +83,14 @@ def serialize_user(user):
     }
 
 
+def inactive_account_message(status):
+    if status == User.Status.SUSPENDED:
+        return "บัญชีนี้ถูกระงับ กรุณาติดต่อผู้ดูแลหน่วยงาน"
+    if status == User.Status.PENDING:
+        return "บัญชีนี้ยังไม่ได้รับการอนุมัติ"
+    return "บัญชีนี้ไม่พร้อมใช้งาน"
+
+
 def token_required(view):
     @wraps(view)
     def wrapped(request, *args, **kwargs):
@@ -98,7 +106,7 @@ def token_required(view):
         if token is None or not token.is_valid(raw_token, now):
             return response_error("Invalid or expired token.", 401)
         if token.user.status != User.Status.ACTIVE:
-            return response_error("This account is not active.", 403)
+            return response_error(inactive_account_message(token.user.status), 403)
         request.api_user = token.user
         request.api_token = token
         return view(request, *args, **kwargs)
@@ -201,7 +209,7 @@ def login(request):
     if not user or not user.check_password(password):
         return response_error("Invalid email or password.", 401)
     if user.status != User.Status.ACTIVE:
-        return response_error("This account is not active.", 403)
+        return response_error(inactive_account_message(user.status), 403)
     raw_token = secrets.token_urlsafe(32)
     token = ApiToken(user=user, expires_at=timezone.now() + timedelta(days=30))
     token.set_token(raw_token)

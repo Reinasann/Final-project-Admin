@@ -153,6 +153,25 @@ class UserManagementPermissionTests(TestCase):
         self.collector_a.refresh_from_db()
         self.assertEqual(self.collector_a.status, User.Status.ACTIVE)
 
+    def test_account_status_switch_returns_json_without_page_redirect(self):
+        self.login(self.organization_admin_a.email)
+
+        response = self.client.post(
+            "/users/action/",
+            data={
+                "id": self.collector_a.id,
+                "action": "suspend",
+                "return_view": "collectors",
+            },
+            HTTP_X_REQUESTED_WITH="XMLHttpRequest",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["status"], User.Status.SUSPENDED)
+        self.assertEqual(response.json()["status_label"], "ระงับ")
+        self.collector_a.refresh_from_db()
+        self.assertEqual(self.collector_a.status, User.Status.SUSPENDED)
+
 
 class OrganizationColorUniquenessTests(TestCase):
     def setUp(self):
@@ -269,6 +288,39 @@ class ApiTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIsNotNone(ApiToken.objects.get(user=self.user).revoked_at)
         self.assertEqual(self.client.get("/api/v1/me/", **auth).status_code, 401)
+
+    def test_suspended_accounts_receive_a_clear_login_message(self):
+        self.user.status = User.Status.SUSPENDED
+        self.user.save(update_fields=["status"])
+        api_response = self.client.post(
+            "/api/v1/auth/login/",
+            data=json.dumps({
+                "email": self.user.email,
+                "password": "password123",
+            }),
+            content_type="application/json",
+        )
+
+        self.assertEqual(api_response.status_code, 403)
+        self.assertEqual(
+            api_response.json()["detail"],
+            "บัญชีนี้ถูกระงับ กรุณาติดต่อผู้ดูแลหน่วยงาน",
+        )
+
+        self.admin.status = User.Status.SUSPENDED
+        self.admin.save(update_fields=["status"])
+        admin_response = self.client.post(
+            "/",
+            data={
+                "email": self.admin.email,
+                "password": "admin-password",
+            },
+        )
+        self.assertEqual(admin_response.status_code, 200)
+        self.assertContains(
+            admin_response,
+            "บัญชีนี้ถูกระงับ กรุณาติดต่อผู้ดูแลระบบ",
+        )
 
     def test_api_token_uses_direct_digest_lookup(self):
         token = self.login_token()

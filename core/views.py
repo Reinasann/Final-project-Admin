@@ -9,7 +9,7 @@ from io import StringIO
 from django.db import IntegrityError, transaction
 from django.core.paginator import Paginator
 from django.shortcuts import render, redirect
-from django.http import HttpResponse, HttpResponseForbidden
+from django.http import HttpResponse, HttpResponseForbidden, JsonResponse
 from django.utils import timezone
 from django.views.decorators.http import require_POST
 from .dummy_data import (
@@ -315,14 +315,21 @@ def login_view(request):
         email = request.POST.get('email', '').strip()
         password = request.POST.get('password', '').strip()
         user = User.objects.select_related('organization').filter(email__iexact=email).first()
-        if user and user.check_password(password) and user.status == User.Status.ACTIVE and user.role in (User.Role.SUPER_ADMIN, User.Role.ORGANIZATION_ADMIN):
+        if not user or not user.check_password(password):
+            error = 'อีเมลหรือรหัสผ่านไม่ถูกต้อง'
+        elif user.status == User.Status.SUSPENDED:
+            error = 'บัญชีนี้ถูกระงับ กรุณาติดต่อผู้ดูแลระบบ'
+        elif user.status == User.Status.PENDING:
+            error = 'บัญชีนี้ยังไม่ได้รับการอนุมัติ'
+        elif user.role not in (User.Role.SUPER_ADMIN, User.Role.ORGANIZATION_ADMIN):
+            error = 'บัญชีนี้ไม่มีสิทธิ์เข้าสู่ระบบแอดมิน'
+        else:
             request.session['logged_in'] = True
             request.session['user_id'] = user.id
             request.session['user_email'] = user.email
             request.session['user_role'] = SYSTEM_ADMIN if user.role == User.Role.SUPER_ADMIN else ORG_ADMIN
             request.session['organization_id'] = user.organization_id
             return redirect('dashboard')
-        error = 'อีเมล รหัสผ่าน หรือสิทธิ์แอดมินไม่ถูกต้อง'
 
     return render(request, 'core/login.html', {
         'error': error,
@@ -898,6 +905,7 @@ def user_action(request):
     uid = request.POST.get('id')
     action = request.POST.get('action')
     system_admin = is_system_admin(request)
+    is_ajax = request.headers.get('X-Requested-With') == 'XMLHttpRequest'
     return_view = request.POST.get('return_view')
     redirect_url = '/users/?view=all' if system_admin and return_view == 'all' else '/users/'
 
@@ -911,6 +919,11 @@ def user_action(request):
         )
     )
     if not can_manage:
+        if is_ajax:
+            return JsonResponse({
+                'success': False,
+                'message': 'คุณไม่มีสิทธิ์จัดการผู้ใช้งานรายการนี้',
+            }, status=403)
         request.session['toast'] = {
             'type': 'error', 'title': 'ไม่มีสิทธิ์',
             'message': 'คุณไม่มีสิทธิ์จัดการผู้ใช้งานรายการนี้',
@@ -928,7 +941,18 @@ def user_action(request):
         elif action == 'suspend':
             user.status = User.Status.SUSPENDED if user.status == User.Status.ACTIVE else User.Status.ACTIVE
             user.save(update_fields=['status'])
-            request.session['toast'] = {'type': 'success', 'title': 'บันทึกแล้ว', 'message': 'เปลี่ยนสถานะผู้ใช้งานแล้ว'}
+            status_label = 'ใช้งาน' if user.status == User.Status.ACTIVE else 'ระงับ'
+            message = f'เปลี่ยนสถานะบัญชีเป็น {status_label} แล้ว'
+            if is_ajax:
+                return JsonResponse({
+                    'success': True,
+                    'status': user.status,
+                    'status_label': status_label,
+                    'message': message,
+                })
+            request.session['toast'] = {
+                'type': 'success', 'title': 'บันทึกแล้ว', 'message': message,
+            }
         elif action == 'role':
             if system_admin:
                 organization_id = request.POST.get('organization_id', user.organization_id)

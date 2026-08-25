@@ -156,11 +156,11 @@
                 {% if user.role == 'Admin' %}<span class="px-2 py-1 rounded bg-blue-50 text-blue-700 text-xs font-medium">แอดมินหน่วยงาน</span>{% else %}<span class="px-2 py-1 rounded bg-emerald-50 text-emerald-700 text-xs font-medium">ผู้เก็บขยะ</span>{% endif %}
               {% endif %}
             </td>
-            <td class="p-4">
+            <td class="p-4" data-account-status-cell>
               <div class="flex items-center justify-center gap-3">
-              <span class="flex min-w-16 items-center gap-1 text-sm font-medium {% if user.status == 'Active' %}text-green-600{% else %}text-red-500{% endif %}">
-                <span class="w-2 h-2 rounded-full {% if user.status == 'Active' %}bg-green-500{% else %}bg-red-500{% endif %}"></span>
-                {% if user.status == 'Active' %}ใช้งาน{% else %}ระงับ{% endif %}
+              <span data-account-status-label class="flex min-w-16 items-center gap-1 text-sm font-medium {% if user.status == 'Active' %}text-green-600{% else %}text-red-500{% endif %}">
+                <span data-account-status-dot class="w-2 h-2 rounded-full {% if user.status == 'Active' %}bg-green-500{% else %}bg-red-500{% endif %}"></span>
+                <span data-account-status-text>{% if user.status == 'Active' %}ใช้งาน{% else %}ระงับ{% endif %}</span>
               </span>
                 {% if user.can_manage %}
                 <form method="post" action="/users/action/" class="flex items-center gap-2">
@@ -169,7 +169,7 @@
                   <input type="hidden" name="action" value="suspend"/>
                   <input type="hidden" name="return_view" value="{{ view_scope }}"/>
                   <label class="relative inline-flex cursor-pointer items-center" title="เปิดหรือปิดการใช้งาน">
-                    <input type="checkbox" class="peer sr-only" {% if user.status == 'Active' %}checked{% endif %} onchange="this.form.requestSubmit()"/>
+                    <input type="checkbox" class="peer sr-only" {% if user.status == 'Active' %}checked{% endif %} onchange="updateAccountStatus(this)"/>
                     <span class="h-6 w-11 rounded-full bg-gray-300 transition peer-checked:bg-green-500 after:absolute after:left-[2px] after:top-[2px] after:h-5 after:w-5 after:rounded-full after:bg-white after:transition peer-checked:after:translate-x-5"></span>
                   </label>
                 </form>
@@ -197,6 +197,55 @@ function toggleNewUserPassword(){
   input.type=show?'text':'password';
   icon.setAttribute('data-lucide',show?'eye-off':'eye');
   lucide.createIcons();
+}
+let accountStatusMessageTimer;
+function showAccountStatusMessage(message,isError=false){
+  let toast=document.getElementById('account-status-message');
+  if(!toast){
+    toast=document.createElement('div');
+    toast.id='account-status-message';
+    toast.setAttribute('role','status');
+    toast.className='fixed right-5 top-5 z-[110] rounded-xl px-4 py-3 text-sm font-medium text-white shadow-lg';
+    document.body.appendChild(toast);
+  }
+  toast.classList.toggle('bg-red-600',isError);
+  toast.classList.toggle('bg-green-600',!isError);
+  toast.textContent=message;
+  toast.classList.remove('hidden');
+  clearTimeout(accountStatusMessageTimer);
+  accountStatusMessageTimer=setTimeout(()=>toast.classList.add('hidden'),3000);
+}
+async function updateAccountStatus(input){
+  const form=input.form;
+  const cell=form.closest('[data-account-status-cell]');
+  const previousChecked=!input.checked;
+  input.disabled=true;
+  cell.classList.add('opacity-60');
+  try{
+    const response=await fetch(form.getAttribute('action'),{
+      method:'POST',
+      body:new FormData(form),
+      headers:{'X-Requested-With':'XMLHttpRequest','Accept':'application/json'},
+    });
+    const data=await response.json();
+    if(!response.ok||!data.success)throw new Error(data.message||'ไม่สามารถเปลี่ยนสถานะบัญชีได้');
+    const active=data.status==='Active';
+    const label=cell.querySelector('[data-account-status-label]');
+    const dot=cell.querySelector('[data-account-status-dot]');
+    cell.querySelector('[data-account-status-text]').textContent=data.status_label;
+    label.classList.toggle('text-green-600',active);
+    label.classList.toggle('text-red-500',!active);
+    dot.classList.toggle('bg-green-500',active);
+    dot.classList.toggle('bg-red-500',!active);
+    input.checked=active;
+    showAccountStatusMessage(data.message);
+  }catch(error){
+    input.checked=previousChecked;
+    showAccountStatusMessage(error.message||'ไม่สามารถเปลี่ยนสถานะบัญชีได้',true);
+  }finally{
+    input.disabled=false;
+    cell.classList.remove('opacity-60');
+  }
 }
 lucide.createIcons();
 </script>
