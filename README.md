@@ -1,6 +1,7 @@
 # RecycleAdmin – Django Version
 
-ระบบจัดการขยะรีไซเคิล แปลงจาก React → Django + conda
+ระบบจัดการขยะรีไซเคิลด้วย Django, SQLite สำหรับพัฒนาในเครื่อง และ PostgreSQL
+สำหรับ Production รวม API สำหรับ Flutter, ESP32 และ Firebase Cloud Messaging
 
 ## โครงสร้างโปรเจกต์
 
@@ -12,7 +13,7 @@ recycleadmin/
 │   ├── settings.py
 │   └── urls.py
 └── core/                    ← แอปหลัก
-    ├── dummy_data.py        ← ข้อมูล mock ทั้งหมด
+    ├── dummy_data.py        ← ตัวแปลงข้อมูลจากฐานข้อมูลให้เข้ากับ Template เดิม
     ├── views.py             ← logic ทุกหน้า
     ├── urls.py
     ├── templatetags/
@@ -36,7 +37,7 @@ conda env create -f environment.yml
 conda activate recycleadmin
 ```
 
-### 2. migrate database (สำหรับ session)
+### 2. migrate database
 
 ```bash
 python manage.py migrate
@@ -50,9 +51,10 @@ python manage.py runserver
 
 เปิด http://127.0.0.1:8000/ ในเบราว์เซอร์
 
-## Login
+## ฐานข้อมูล Production
 
-กรอก **อีเมลและรหัสผ่านใดก็ได้** เพื่อเข้าสู่ระบบทดสอบ
+เมื่อกำหนด `DATABASE_URL` ระบบจะใช้ PostgreSQL อัตโนมัติ ดูขั้นตอนทั้งหมดใน
+`DEPLOYMENT.md` ก่อน Deploy ขึ้น Render
 
 ## ฟีเจอร์
 
@@ -66,7 +68,7 @@ python manage.py runserver
 
 ## หมายเหตุ
 
-- ข้อมูลถูกเก็บใน **Django session** (cookie-based) → รีเฟรชหน้าข้อมูลยังคงอยู่
-- Session หมดอายุหลัง 24 ชั่วโมง หรือกด "ออกจากระบบ"
-- ใช้ Tailwind CSS CDN + Lucide Icons CDN (ไม่ต้องติดตั้งเพิ่ม)
+- ข้อมูลระบบทั้งหมดอ่านและบันทึกผ่าน Django ORM
+- Admin Session หมดอายุหลัง 24 ชั่วโมง หรือเมื่อกดออกจากระบบ
+- Tailwind CSS ถูก Build ไว้ใน Django Static; ใช้ `npm run build:css` หลังเพิ่ม class ใหม่
 "# Final-project" 

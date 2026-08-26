@@ -1,11 +1,10 @@
+from django.conf import settings
 from django.http import HttpResponse
+from django.utils.cache import patch_vary_headers
 
 
 class DevelopmentCorsMiddleware:
-    """Permit the Flutter web development server to call the local JSON API.
-
-    Deployments should replace ``*`` with the production app origin.
-    """
+    """Allow configured Flutter web origins while keeping native clients working."""
 
     def __init__(self, get_response):
         self.get_response = get_response
@@ -16,7 +15,13 @@ class DevelopmentCorsMiddleware:
         else:
             response = self.get_response(request)
         if request.path.startswith("/api/"):
-            response["Access-Control-Allow-Origin"] = "*"
+            origin = request.headers.get("Origin", "")
+            if settings.DEBUG and origin:
+                response["Access-Control-Allow-Origin"] = origin
+            elif origin in settings.CORS_ALLOWED_ORIGINS:
+                response["Access-Control-Allow-Origin"] = origin
+            if origin:
+                patch_vary_headers(response, ("Origin",))
             response["Access-Control-Allow-Methods"] = "GET, POST, PATCH, OPTIONS"
             response["Access-Control-Allow-Headers"] = "Authorization, Content-Type, X-Device-Key"
         return response

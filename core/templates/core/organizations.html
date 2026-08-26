@@ -34,21 +34,25 @@
       <h2 class="font-bold text-gray-800">เพิ่มหน่วยงาน</h2>
       <p class="text-sm text-gray-500">สีที่เลือกต้องไม่ซ้ำกับหน่วยงานอื่น</p>
     </div>
-    <form id="form-add-org" method="post" action="/organizations/add/" class="grid grid-cols-1 md:grid-cols-3 gap-4 items-end">
+    <form id="form-add-org" method="post" action="/organizations/add/" class="grid grid-cols-1 gap-4 md:grid-cols-3 md:items-start">
       {% csrf_token %}
       <div>
-        <label class="text-xs font-bold text-gray-500 uppercase">ชื่อหน่วยงาน</label>
-        <input name="name" required class="w-full p-2 rounded border mt-1" placeholder="ชื่อหน่วยงาน"/>
+        <label class="block h-4 text-xs font-bold uppercase text-gray-500">ชื่อหน่วยงาน</label>
+        <input name="name" required class="mt-1 h-10 w-full rounded border p-2" placeholder="ชื่อหน่วยงาน"/>
       </div>
       <div>
-        <label class="text-xs font-bold text-gray-500 uppercase">สีประจำหน่วยงาน</label>
-        <div class="flex items-center gap-3 mt-1">
+        <label class="block h-4 text-xs font-bold uppercase text-gray-500">สีประจำหน่วยงาน</label>
+        <div class="mt-1 flex h-10 items-center gap-3">
           <input id="add-org-color" type="color" name="card_color" value="{{ suggested_color }}" data-org-id="" data-suggested-color="{{ suggested_color }}" class="h-10 w-20 rounded border bg-white"/>
-          <div class="min-w-0 flex-1"><label for="add-org-color-code" class="sr-only">รหัสสี HEX</label><input id="add-org-color-code" data-color-hex type="text" value="{{ suggested_color|upper }}" maxlength="7" pattern="#[0-9A-Fa-f]{6}" spellcheck="false" autocomplete="off" aria-label="รหัสสี HEX" class="w-full rounded border border-gray-200 bg-white px-3 py-2 font-mono text-sm uppercase text-gray-700"/><p id="add-org-color-hint" class="mt-1 text-xs text-green-600">สีว่างที่ระบบแนะนำ</p></div>
+          <div class="min-w-0 flex-1"><label for="add-org-color-code" class="sr-only">รหัสสี HEX</label><input id="add-org-color-code" data-color-hex type="text" value="{{ suggested_color|upper }}" maxlength="7" pattern="#[0-9A-Fa-f]{6}" spellcheck="false" autocomplete="off" aria-label="รหัสสี HEX" class="h-10 w-full rounded border border-gray-200 bg-white px-3 py-2 font-mono text-sm uppercase text-gray-700"/></div>
         </div>
+        <p id="add-org-color-hint" class="mt-1 text-xs text-green-600">สีว่างที่ระบบแนะนำ</p>
         <p data-color-error class="hidden mt-1 text-xs text-red-600"></p>
       </div>
-      <button type="button" onclick="confirmOrganizationForm('form-add-org','ยืนยันการเพิ่มหน่วยงาน','บันทึกหน่วยงานนี้หรือไม่?')" class="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700">บันทึก</button>
+      <div>
+        <span aria-hidden="true" class="block h-4 text-xs">&nbsp;</span>
+        <button type="button" onclick="confirmOrganizationForm('form-add-org','ยืนยันการเพิ่มหน่วยงาน','บันทึกหน่วยงานนี้หรือไม่?')" class="mt-1 h-10 w-full rounded bg-green-600 px-4 py-2 text-white hover:bg-green-700">บันทึก</button>
+      </div>
     </form>
   </div>
 

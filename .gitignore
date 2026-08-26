@@ -5,3 +5,6 @@ output/
 .env
 .venv/
 venv/
+node_modules/
+sqlite-backup.json
+db.sqlite3

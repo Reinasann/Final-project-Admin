@@ -1,10 +1,11 @@
+{% load static %}
 <!DOCTYPE html>
 <html lang="th">
 <head>
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <title>RecycleAdmin - เข้าสู่ระบบ</title>
-<script src="https://cdn.tailwindcss.com"></script>
+<link rel="stylesheet" href="{% static 'core/css/tailwind.css' %}"/>
 <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
 <style>@import url('https://fonts.googleapis.com/css2?family=Sarabun:wght@400;500;600;700&display=swap');body{font-family:'Sarabun',sans-serif}.skeleton-pulse{animation:skeletonPulse 1.15s ease-in-out infinite alternate}@keyframes skeletonPulse{from{opacity:.52}to{opacity:1}}</style>
 </head>
@@ -41,7 +42,6 @@
     </div>
     <button type="submit" class="w-full bg-blue-600 text-white py-3 rounded-xl font-bold hover:bg-blue-700 transition shadow-md">เข้าสู่ระบบ</button>
   </form>
-  <p class="text-center text-xs text-gray-400 mt-6">ระบบตัวอย่างนี้ใช้อีเมลและรหัสผ่านใดก็ได้</p>
 </div>
 <script>
 function toggleOrg(){document.getElementById('org-field')?.classList.toggle('hidden',document.getElementById('role')?.value==='System admin')}

@@ -1,0 +1,10 @@
+{
+  "name": "smart-recycle-admin-assets",
+  "private": true,
+  "scripts": {
+    "build:css": "tailwindcss -i ./assets/tailwind-input.css -o ./core/static/core/css/tailwind.css --minify"
+  },
+  "devDependencies": {
+    "tailwindcss": "3.4.17"
+  }
+}
