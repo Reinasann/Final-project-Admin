@@ -7,6 +7,7 @@ from datetime import datetime, timedelta
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from io import StringIO
 from django.db import IntegrityError, transaction
+from django.db.models import Count, Max, Q
 from django.core.paginator import Paginator
 from django.shortcuts import render, redirect
 from django.http import HttpResponse, HttpResponseForbidden, JsonResponse
@@ -211,6 +212,24 @@ def visible_records(request, records):
     return [item for item in records if item.get('organization_id') == oid]
 
 
+def visible_issue_queryset(request):
+    queryset = IssueReport.objects.all()
+    if not is_system_admin(request):
+        queryset = queryset.filter(machine__organization_id=current_org_id(request))
+    return queryset
+
+
+def issue_nav_counts(request):
+    return visible_issue_queryset(request).aggregate(
+        waiting=Count('id', filter=Q(status=IssueReport.Status.WAITING)),
+        in_progress=Count('id', filter=Q(status=IssueReport.Status.IN_PROGRESS)),
+    )
+
+
+def revision_part(value):
+    return value.isoformat() if hasattr(value, 'isoformat') else str(value or '')
+
+
 def enrich_with_org(session, records):
     organizations = org_map(session)
     enriched = []
@@ -285,6 +304,7 @@ def dashboard_chart_payload(machines, history):
 
 def render_admin(request, template_name, context):
     context.setdefault('active_tab_page', context.get('active_tab'))
+    nav_issue_counts = issue_nav_counts(request)
     context.update({
         'base_template': (
             'core/base_ajax.html'
@@ -297,8 +317,52 @@ def render_admin(request, template_name, context):
         'user_email': request.session.get('user_email', ''),
         'organizations': get_organizations(request.session),
         'current_org': current_org(request),
+        'issue_waiting_count': nav_issue_counts['waiting'],
+        'issue_in_progress_count': nav_issue_counts['in_progress'],
     })
     return render(request, template_name, context)
+
+
+@login_required
+def admin_live_state(request):
+    machine_queryset = Machine.objects.all()
+    if not is_system_admin(request):
+        machine_queryset = machine_queryset.filter(organization_id=current_org_id(request))
+    machine_state = machine_queryset.aggregate(
+        count=Count('id', distinct=True),
+        created=Max('created_at'),
+        updated=Max('last_updated_at'),
+        measured=Max('bins__last_measured_at'),
+    )
+    device_revision = ''
+    if is_system_admin(request):
+        device_state = MachineInformation.objects.aggregate(
+            count=Count('serial_number'),
+            created=Max('created_at'),
+            seen=Max('last_seen_at'),
+        )
+        device_revision = ':'.join(revision_part(device_state[key]) for key in ('count', 'created', 'seen'))
+
+    issue_queryset = visible_issue_queryset(request)
+    issue_state = issue_queryset.aggregate(
+        count=Count('id'),
+        updated=Max('updated_at'),
+        waiting=Count('id', filter=Q(status=IssueReport.Status.WAITING)),
+        in_progress=Count('id', filter=Q(status=IssueReport.Status.IN_PROGRESS)),
+    )
+    return JsonResponse({
+        'machines_revision': ':'.join(
+            [revision_part(machine_state[key]) for key in ('count', 'created', 'updated', 'measured')]
+            + [device_revision]
+        ),
+        'issues_revision': ':'.join(
+            revision_part(issue_state[key]) for key in ('count', 'updated')
+        ),
+        'issue_counts': {
+            'waiting': issue_state['waiting'],
+            'in_progress': issue_state['in_progress'],
+        },
+    })
 
 
 def deny_org_admin(request):
@@ -719,6 +783,7 @@ def machine_add(request):
                     device=device,
                     status=Machine.Status.OFFLINE,
                     installed_on=timezone.localdate(),
+                    last_updated_at=timezone.now(),
                 )
                 MachineBin.objects.bulk_create([
                     MachineBin(machine=machine, waste_type=waste_type)
@@ -758,6 +823,7 @@ def machine_edit(request):
 
         machine.name = request.POST.get('name', machine.name).strip() or machine.name
         machine.location = request.POST.get('location', machine.location).strip()
+        machine.last_updated_at = timezone.now()
         if coordinates_submitted:
             machine.latitude = latitude
             machine.longitude = longitude
@@ -802,7 +868,7 @@ def machine_toggle(request):
     machine = Machine.objects.filter(pk=mid).first()
     if machine and (allowed_orgs is None or machine.organization_id in allowed_orgs):
         machine.status = Machine.Status.OFFLINE if machine.status == Machine.Status.ONLINE else Machine.Status.ONLINE
-        machine.last_updated_at = datetime.now()
+        machine.last_updated_at = timezone.now()
         machine.save(update_fields=['status', 'last_updated_at'])
         request.session['toast'] = {'type': 'success', 'title': 'บันทึกแล้ว', 'message': f'เปลี่ยนสถานะเครื่อง {machine.code} แล้ว'}
     return redirect('machines')

@@ -5,6 +5,7 @@
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <title>RecycleAdmin</title>
+<link rel="icon" type="image/png" href="{% static 'core/images/logo.png' %}"/>
 <link rel="stylesheet" href="{% static 'core/css/tailwind.css' %}"/>
 <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
 <script>
@@ -97,7 +98,7 @@
   <aside class="w-64 {% if is_system_admin %}bg-white{% else %}bg-emerald-950 text-white{% endif %} border-r {% if is_system_admin %}border-gray-200{% else %}border-emerald-900{% endif %} flex flex-col fixed md:relative z-10 h-full shrink-0 no-print">
     <div class="p-4 border-b {% if is_system_admin %}border-gray-100{% else %}border-white/10{% endif %}">
       <div class="flex items-center gap-2">
-        <div class="w-9 h-9 rounded-lg flex items-center justify-center text-white font-bold text-xl accent-bg">R</div>
+        <img src="{% static 'core/images/logo.png' %}" alt="โลโก้ Smart Recycle" class="h-11 w-11 shrink-0 object-contain"/>
         <div><div class="font-bold text-xl {% if is_system_admin %}text-blue-900{% else %}text-white{% endif %}">RecycleAdmin</div><div class="text-xs {% if is_system_admin %}text-gray-500{% else %}text-emerald-100{% endif %}">{{ user_role_th }}{% if current_org %} · {{ current_org.name }}{% endif %}</div></div>
       </div>
     </div>
@@ -108,7 +109,7 @@
       {% include "core/_nav_item.html" with icon="bar-chart-3" label="รายงาน" tab="statistics" url="/statistics/" active_tab=active_tab_page %}
       {% include "core/_nav_item.html" with icon="monitor-play" label="จัดการเครื่อง" tab="machines" url="/machines/" active_tab=active_tab_page %}
       {% include "core/_nav_item.html" with icon="users" label="ผู้ใช้งาน" tab="users" url="/users/" active_tab=active_tab_page %}
-      {% include "core/_nav_item.html" with icon="wrench" label="แจ้งซ่อม" tab="issues" url="/issues/" active_tab=active_tab_page %}
+      {% include "core/_nav_item.html" with icon="wrench" label="แจ้งซ่อม" tab="issues" url="/issues/" active_tab=active_tab_page issue_badges=1 alert_waiting=issue_waiting_count alert_in_progress=issue_in_progress_count %}
     </nav>
     <div class="p-4 border-t {% if is_system_admin %}border-gray-100{% else %}border-white/10{% endif %}">
       <div class="text-xs {% if is_system_admin %}text-gray-400{% else %}text-emerald-100{% endif %} mb-2 truncate">{{ user_email }}</div>
@@ -176,6 +177,9 @@ function updateAdminPageSize(sizeParam,pageParam,value){
 }
 let adminAjaxRequestController=null;
 let adminAjaxProgressTimer=null;
+let adminLiveState=null;
+let adminBackgroundRefreshInFlight=false;
+let adminLastMachineRefreshAt=Date.now();
 const adminLoadedScripts=new Set(Array.from(document.scripts).filter(script=>script.src).map(script=>script.src));
 const adminLoadedStyles=new Set(Array.from(document.querySelectorAll('link[rel="stylesheet"]')).map(link=>link.href));
 
@@ -217,6 +221,19 @@ function updateAdminNavigation(activeTab){
     if(active)link.setAttribute('aria-current','page');else link.removeAttribute('aria-current');
   });
 }
+function updateIssueNavigationBadges(counts={}){
+  const values={waiting:Number(counts.waiting||0),'in-progress':Number(counts.in_progress||0)};
+  document.querySelectorAll('[data-issue-badge]').forEach(badge=>{
+    const count=values[badge.dataset.issueBadge]||0;
+    badge.textContent=String(count);
+    badge.classList.toggle('hidden',count===0);
+    const label=badge.dataset.issueBadge==='waiting'?'รอรับเรื่อง':'รับเรื่องแล้ว';
+    badge.setAttribute('aria-label',`${label} ${count} รายการ`);
+  });
+}
+function activeAdminTab(){
+  return document.querySelector('[data-admin-nav-link][aria-current="page"]')?.dataset.adminTab||'';
+}
 function adminLoadStylesheet(href){
   const absolute=new URL(href,window.location.href).href;
   if(adminLoadedStyles.has(absolute))return Promise.resolve();
@@ -243,7 +260,7 @@ function adminRunInlineScript(source,index){
   const execute=new Function(`${source}${exports}\n//# sourceURL=admin-ajax-page-${index}.js`);
   execute();
 }
-async function adminApplyAjaxResponse(html,responseUrl,historyMode){
+async function adminApplyAjaxResponse(html,responseUrl,historyMode,{preserveScroll=false}={}){
   const parsed=new DOMParser().parseFromString(html,'text/html');
   const responseRoot=parsed.getElementById('admin-ajax-response');
   if(!responseRoot){window.location.assign(responseUrl);return false;}
@@ -259,6 +276,7 @@ async function adminApplyAjaxResponse(html,responseUrl,historyMode){
   await Promise.all(stylesheetLinks.map(link=>adminLoadStylesheet(link.href)));
   window.__adminStartPageRuntime();
   const main=document.getElementById('admin-main-content');
+  const previousScrollTop=main.scrollTop;
   main.replaceChildren(...Array.from(responseRoot.childNodes).map(node=>document.adoptNode(node)));
   try{
     for(const script of executableScripts){
@@ -277,15 +295,16 @@ async function adminApplyAjaxResponse(html,responseUrl,historyMode){
   if(parsed.title)document.title=parsed.title;
   if(historyMode==='push')window.history.pushState({adminAjax:true},'',responseUrl);
   else if(historyMode==='replace')window.history.replaceState({adminAjax:true},'',responseUrl);
-  main.scrollTop=0;
+  main.scrollTop=preserveScroll?previousScrollTop:0;
+  if(responseRoot.dataset.activeTab==='machines')adminLastMachineRefreshAt=Date.now();
   lucide.createIcons();
   return true;
 }
-async function adminAjaxNavigate(url,{method='GET',body=null,historyMode='push'}={}){
+async function adminAjaxNavigate(url,{method='GET',body=null,historyMode='push',preserveScroll=false,showProgress=true}={}){
   adminAjaxRequestController?.abort();
   const controller=new AbortController();
   adminAjaxRequestController=controller;
-  showAdminAjaxProgress();
+  if(showProgress)showAdminAjaxProgress();
   try{
     const response=await fetch(url,{
       method,body,signal:controller.signal,
@@ -293,11 +312,16 @@ async function adminAjaxNavigate(url,{method='GET',body=null,historyMode='push'}
     });
     if(!response.ok)throw new Error(`ไม่สามารถโหลดข้อมูลได้ (${response.status})`);
     const html=await response.text();
-    await adminApplyAjaxResponse(html,response.url,historyMode);
+    return await adminApplyAjaxResponse(html,response.url,historyMode,{preserveScroll});
   }catch(error){
     if(error.name!=='AbortError')showAdminAjaxError(error.message||'ไม่สามารถโหลดข้อมูลได้');
+    return false;
   }finally{
-    if(adminAjaxRequestController===controller){adminAjaxRequestController=null;finishAdminAjaxProgress();}
+    if(adminAjaxRequestController===controller){
+      adminAjaxRequestController=null;
+      if(showProgress)finishAdminAjaxProgress();
+      window.setTimeout(()=>adminPollLiveState({allowPageRefresh:false}),0);
+    }
   }
 }
 function adminAjaxSubmitForm(form,submitter){
@@ -311,6 +335,45 @@ function adminAjaxSubmitForm(form,submitter){
     return adminAjaxNavigate(url.toString(),{historyMode:'push'});
   }
   return adminAjaxNavigate(url.toString(),{method,body:formData,historyMode:'replace'});
+}
+function adminCanRefreshInBackground(){
+  if(document.hidden||adminBackgroundRefreshInFlight||adminAjaxRequestController)return false;
+  if(document.querySelector('#detail-modal:not(.hidden),#overview-map-modal:not(.hidden),#add-form:not(.hidden),#detail-panel:not(.hidden)'))return false;
+  return !document.activeElement?.matches('input,select,textarea');
+}
+async function adminRefreshCurrentPage(){
+  if(!adminCanRefreshInBackground())return false;
+  adminBackgroundRefreshInFlight=true;
+  try{
+    return await adminAjaxNavigate(window.location.href,{
+      historyMode:'none',preserveScroll:true,showProgress:false,
+    });
+  }finally{
+    adminBackgroundRefreshInFlight=false;
+  }
+}
+async function adminPollLiveState({allowPageRefresh=true}={}){
+  try{
+    const response=await fetch('/admin/live-state/',{
+      cache:'no-store',
+      headers:{'Accept':'application/json','X-Requested-With':'XMLHttpRequest'},
+    });
+    if(!response.ok)return;
+    const nextState=await response.json();
+    updateIssueNavigationBadges(nextState.issue_counts);
+    const previousState=adminLiveState;
+    adminLiveState=nextState;
+    if(!allowPageRefresh||!previousState)return;
+    const activeTab=activeAdminTab();
+    const machineChanged=nextState.machines_revision!==previousState.machines_revision;
+    const issuesChanged=nextState.issues_revision!==previousState.issues_revision;
+    const machineRefreshDue=activeTab==='machines'&&Date.now()-adminLastMachineRefreshAt>=300000;
+    if((activeTab==='machines'&&(machineChanged||machineRefreshDue))||(activeTab==='issues'&&issuesChanged)){
+      await adminRefreshCurrentPage();
+    }
+  }catch(_){
+    // การเชื่อมต่อรอบถัดไปจะลองตรวจข้อมูลใหม่อีกครั้งโดยไม่รบกวนผู้ใช้
+  }
 }
 window.addEventListener('pageshow',()=>window.requestAnimationFrame(hideAdminSkeleton));
 document.addEventListener('click',event=>{
@@ -329,6 +392,9 @@ document.addEventListener('submit',event=>{
   adminAjaxSubmitForm(form,event.submitter);
 });
 window.addEventListener('popstate',()=>adminAjaxNavigate(window.location.href,{historyMode:'none'}));
+window.setInterval(()=>adminPollLiveState(),30000);
+document.addEventListener('visibilitychange',()=>{if(!document.hidden)adminPollLiveState();});
+window.setTimeout(()=>adminPollLiveState({allowPageRefresh:false}),0);
 window.addEventListener('beforeunload',showAdminSkeleton);
 </script>
 </body>

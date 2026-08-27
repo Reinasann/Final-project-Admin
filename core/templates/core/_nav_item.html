@@ -10,8 +10,13 @@
     <i data-lucide="{{ icon }}" class="w-5 h-5 shrink-0"></i>
     <span class="nav-label">{{ label }}</span>
   </div>
-  {% if alert %}
-  <span class="nav-label bg-red-500 text-white text-xs px-2 py-0.5 rounded-full">{{ alert }}</span>
+  {% if issue_badges %}
+  <span class="nav-label flex items-center gap-1" data-issue-nav-badges>
+    <span data-issue-badge="waiting" class="{% if not alert_waiting %}hidden {% endif %}min-w-5 rounded-full bg-red-500 px-1.5 py-0.5 text-center text-xs font-bold text-white" aria-label="รอรับเรื่อง {{ alert_waiting }} รายการ" title="รอรับเรื่อง">{{ alert_waiting }}</span>
+    <span data-issue-badge="in-progress" class="{% if not alert_in_progress %}hidden {% endif %}min-w-5 rounded-full bg-yellow-400 px-1.5 py-0.5 text-center text-xs font-bold text-yellow-950" aria-label="รับเรื่องแล้ว {{ alert_in_progress }} รายการ" title="รับเรื่องแล้ว">{{ alert_in_progress }}</span>
+  </span>
+  {% elif alert %}
+  <span class="nav-label rounded-full bg-red-500 px-2 py-0.5 text-xs text-white">{{ alert }}</span>
   {% endif %}
 </a>
 {% endwith %}

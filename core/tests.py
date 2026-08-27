@@ -93,6 +93,101 @@ class AdminAjaxNavigationTests(TestCase):
         self.assertContains(response, 'id="login-progress-bar"')
         self.assertContains(response, "X-Requested-With':'XMLHttpRequest")
 
+    def test_live_state_returns_issue_badges_and_refresh_revisions(self):
+        machine = Machine.objects.create(
+            id="M-LIVE-1",
+            organization=self.organization,
+            code="SR-LIVE-1",
+            name="Live machine",
+            location="Building A",
+            status=Machine.Status.ONLINE,
+            last_updated_at=timezone.now(),
+        )
+        category = IssueCategory.objects.create(name="Live issue")
+        waiting = IssueReport.objects.create(
+            machine=machine,
+            category=category,
+            reporter=self.admin,
+            description="Waiting issue",
+            status=IssueReport.Status.WAITING,
+        )
+        IssueReport.objects.create(
+            machine=machine,
+            category=category,
+            reporter=self.admin,
+            description="Accepted issue",
+            status=IssueReport.Status.IN_PROGRESS,
+        )
+
+        first = self.client.get("/admin/live-state/")
+        self.assertEqual(first.status_code, 200)
+        self.assertEqual(first.json()["issue_counts"], {
+            "waiting": 1,
+            "in_progress": 1,
+        })
+        self.assertTrue(first.json()["machines_revision"])
+        self.assertTrue(first.json()["issues_revision"])
+
+        dashboard = self.client.get("/dashboard/")
+        self.assertContains(dashboard, 'data-issue-badge="waiting"')
+        self.assertContains(dashboard, 'data-issue-badge="in-progress"')
+        self.assertContains(dashboard, "admin/live-state/")
+        self.assertContains(dashboard, "300000")
+
+        previous_revision = first.json()["issues_revision"]
+        waiting.status = IssueReport.Status.IN_PROGRESS
+        waiting.save(update_fields=["status", "updated_at"])
+        second = self.client.get("/admin/live-state/")
+        self.assertNotEqual(second.json()["issues_revision"], previous_revision)
+        self.assertEqual(second.json()["issue_counts"], {
+            "waiting": 0,
+            "in_progress": 2,
+        })
+
+    def test_organization_admin_live_state_is_scoped_to_organization(self):
+        other_organization = Organization.objects.create(
+            id="org-live-other",
+            name="Other organization",
+            card_color="#16a34a",
+        )
+        organization_admin = User(
+            id="OA-LIVE",
+            organization=self.organization,
+            name="Organization Admin",
+            email="org-live@example.com",
+            role=User.Role.ORGANIZATION_ADMIN,
+            status=User.Status.ACTIVE,
+        )
+        organization_admin.set_password("password123")
+        organization_admin.save()
+        category = IssueCategory.objects.create(name="Scoped issue")
+        own_machine = Machine.objects.create(
+            id="M-LIVE-OWN", organization=self.organization, code="SR-LIVE-OWN",
+            name="Own machine", location="Own building",
+        )
+        other_machine = Machine.objects.create(
+            id="M-LIVE-OTHER", organization=other_organization,
+            code="SR-LIVE-OTHER", name="Other machine", location="Other building",
+        )
+        IssueReport.objects.create(
+            machine=own_machine, category=category, reporter=organization_admin,
+            description="Own issue", status=IssueReport.Status.WAITING,
+        )
+        IssueReport.objects.create(
+            machine=other_machine, category=category, reporter=self.admin,
+            description="Other issue", status=IssueReport.Status.WAITING,
+        )
+
+        self.client.get("/logout/")
+        self.client.post("/", data={
+            "email": organization_admin.email,
+            "password": "password123",
+        })
+        response = self.client.get("/admin/live-state/")
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["issue_counts"]["waiting"], 1)
+
 
 class UserManagementPermissionTests(TestCase):
     def setUp(self):

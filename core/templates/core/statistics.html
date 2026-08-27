@@ -1,5 +1,5 @@
 {% extends base_template %}
-{% load core_extras %}
+{% load core_extras static %}
 {% block content %}
 <style>
   @media print {
@@ -10,7 +10,7 @@
     .report-table-wrap { overflow: visible!important; }
     .report-print-header { display: flex!important; align-items: flex-start; justify-content: space-between; gap: 12mm; margin-bottom: 6mm; border-bottom: 3px solid var(--report-color); padding-bottom: 4mm; }
     .report-print-brand { display: flex; align-items: center; gap: 3mm; }
-    .report-print-logo { display: flex; width: 12mm; height: 12mm; align-items: center; justify-content: center; border-radius: 3mm; background: var(--report-color); color: #fff; font-size: 18pt; font-weight: 700; }
+    .report-print-logo { display: block; width: 15mm; height: 15mm; object-fit: contain; }
     .report-print-title { margin: 0; color: #111827; font-size: 18pt; font-weight: 700; line-height: 1.2; }
     .report-print-subtitle { margin-top: 1mm; color: #6b7280; font-size: 9pt; }
     .report-print-meta { min-width: 78mm; font-size: 8.5pt; line-height: 1.55; }
@@ -40,7 +40,7 @@
   </div>
 
   <header class="print-only report-print-header">
-    <div class="report-print-brand"><div class="report-print-logo">R</div><div><h1 class="report-print-title">รายงานการเก็บขยะรีไซเคิล</h1><p class="report-print-subtitle">ระบบบริหารจัดการเครื่องคัดแยกขยะ RecycleAdmin</p></div></div>
+    <div class="report-print-brand"><img src="{% static 'core/images/logo.png' %}" alt="โลโก้ Smart Recycle" class="report-print-logo"/><div><h1 class="report-print-title">รายงานการเก็บขยะรีไซเคิล</h1><p class="report-print-subtitle">ระบบบริหารจัดการเครื่องคัดแยกขยะ RecycleAdmin</p></div></div>
     <div class="report-print-meta">
       <div class="report-print-meta-row"><span class="report-print-meta-label">ขอบเขตข้อมูล</span><strong>{{ report_scope }}</strong></div>
       <div class="report-print-meta-row"><span class="report-print-meta-label">ช่วงวันที่</span><strong>{{ report_period }}</strong></div>
