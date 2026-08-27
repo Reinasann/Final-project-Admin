@@ -4,7 +4,7 @@ Base URL: `/api/v1/`. Flutter endpoints use `Authorization: Bearer <access_token
 
 | Method and path | Purpose |
 | --- | --- |
-| `POST /auth/login/` | Log in with `email`, `password`; returns a 30-day token. |
+| `POST /auth/login/` | Log in with `email`, `password`; token remains valid until logout, account suspension, password reset, or server-side revocation. |
 | `POST /auth/logout/` | Revoke the Bearer token currently in use. |
 | `POST /auth/password-reset/request/` | Send a six-digit reset code to `email`; the code expires in 10 minutes. |
 | `POST /auth/password-reset/confirm/` | Reset with `email`, `code`, `new_password`; all existing tokens are revoked. |
