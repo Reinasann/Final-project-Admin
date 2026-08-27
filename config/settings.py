@@ -39,6 +39,7 @@ CORS_ALLOWED_ORIGINS = env_list(
     'CORS_ALLOWED_ORIGINS',
     'http://localhost,http://127.0.0.1' if DEBUG else default_csrf_origins,
 )
+CORS_ALLOWED_ORIGIN_REGEXES = env_list('CORS_ALLOWED_ORIGIN_REGEXES')
 
 INSTALLED_APPS = [
     'django.contrib.contenttypes',

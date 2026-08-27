@@ -109,6 +109,7 @@ python manage.py runserver 0.0.0.0:8000
 | `DJANGO_ALLOWED_HOSTS` | รายชื่อ host คั่นด้วย comma |
 | `DJANGO_CSRF_TRUSTED_ORIGINS` | HTTPS origin ที่เชื่อถือ |
 | `CORS_ALLOWED_ORIGINS` | Origin ที่เรียก API ได้ |
+| `CORS_ALLOWED_ORIGIN_REGEXES` | รูปแบบ Origin สำหรับ Flutter Web ในเครื่อง |
 | `DATABASE_URL` | PostgreSQL connection URL; เว้นว่างเพื่อใช้ SQLite |
 | `SQLITE_PATH` | ตำแหน่ง SQLite แบบกำหนดเอง |
 | `FIREBASE_CREDENTIALS` | absolute path ของ Firebase service-account JSON |

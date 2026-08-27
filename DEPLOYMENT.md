@@ -36,6 +36,7 @@ DJANGO_SECRET_KEY=<ให้ Render สร้างค่าลับแบบ�
 DJANGO_ALLOWED_HOSTS=smart-recycle-admin.onrender.com
 DJANGO_CSRF_TRUSTED_ORIGINS=https://smart-recycle-admin.onrender.com
 CORS_ALLOWED_ORIGINS=https://smart-recycle-admin.onrender.com
+CORS_ALLOWED_ORIGIN_REGEXES=^https?://(localhost|127\.0\.0\.1)(:\d+)?$
 DATABASE_URL=<Internal PostgreSQL URL>
 FIREBASE_CREDENTIALS=/etc/secrets/firebase-service-account.json
 ```

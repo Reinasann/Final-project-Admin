@@ -27,6 +27,27 @@ class DateFormattingTests(TestCase):
         self.assertEqual(display_date("2026-08-05"), "05/08/2026")
 
 
+class CorsMiddlewareTests(TestCase):
+    @override_settings(
+        DEBUG=False,
+        CORS_ALLOWED_ORIGINS=[],
+        CORS_ALLOWED_ORIGIN_REGEXES=[
+            r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$",
+        ],
+    )
+    def test_allows_flutter_web_on_a_dynamic_localhost_port(self):
+        response = self.client.options(
+            "/api/v1/auth/login/",
+            HTTP_ORIGIN="http://localhost:59435",
+        )
+
+        self.assertEqual(response.status_code, 204)
+        self.assertEqual(
+            response["Access-Control-Allow-Origin"],
+            "http://localhost:59435",
+        )
+
+
 class AdminAjaxNavigationTests(TestCase):
     def setUp(self):
         self.organization = Organization.objects.create(
