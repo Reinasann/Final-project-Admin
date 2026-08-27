@@ -451,6 +451,20 @@ class ApiTests(TestCase):
         self.assertIsNotNone(ApiToken.objects.get(user=self.user).revoked_at)
         self.assertEqual(self.client.get("/api/v1/me/", **auth).status_code, 401)
 
+    def test_mobile_session_remains_valid_until_logout(self):
+        response = self.client.post(
+            "/api/v1/auth/login/",
+            data=json.dumps({
+                "email": self.user.email,
+                "password": "password123",
+            }),
+            content_type="application/json",
+        )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertIsNone(response.json()["expires_in"])
+        self.assertIsNone(ApiToken.objects.get(user=self.user).expires_at)
+
     def test_suspended_accounts_receive_a_clear_login_message(self):
         self.user.status = User.Status.SUSPENDED
         self.user.save(update_fields=["status"])

@@ -211,13 +211,16 @@ def login(request):
     if user.status != User.Status.ACTIVE:
         return response_error(inactive_account_message(user.status), 403)
     raw_token = secrets.token_urlsafe(32)
-    token = ApiToken(user=user, expires_at=timezone.now() + timedelta(days=30))
+    # The mobile app keeps its opaque token in encrypted device storage. The
+    # session remains valid until the user explicitly logs out, an admin
+    # suspends the account, or the token is revoked server-side.
+    token = ApiToken(user=user, expires_at=None)
     token.set_token(raw_token)
     token.save()
     return JsonResponse({
         "access_token": raw_token,
         "token_type": "Bearer",
-        "expires_in": 30 * 24 * 60 * 60,
+        "expires_in": None,
         "user": serialize_user(user),
     })
 
