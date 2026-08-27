@@ -106,10 +106,10 @@
       <div class="text-xs font-semibold {% if is_system_admin %}text-gray-400{% else %}text-emerald-200{% endif %} mb-2 px-3 uppercase">เมนู</div>
       {% include "core/_nav_item.html" with icon="layout-dashboard" label="ภาพรวม" tab="dashboard" url="/dashboard/" active_tab=active_tab_page %}
       {% if is_system_admin %}{% include "core/_nav_item.html" with icon="building-2" label="หน่วยงาน" tab="organizations" url="/organizations/" active_tab=active_tab_page %}{% endif %}
-      {% include "core/_nav_item.html" with icon="bar-chart-3" label="รายงาน" tab="statistics" url="/statistics/" active_tab=active_tab_page %}
       {% include "core/_nav_item.html" with icon="monitor-play" label="จัดการเครื่อง" tab="machines" url="/machines/" active_tab=active_tab_page %}
       {% include "core/_nav_item.html" with icon="users" label="ผู้ใช้งาน" tab="users" url="/users/" active_tab=active_tab_page %}
       {% include "core/_nav_item.html" with icon="wrench" label="แจ้งซ่อม" tab="issues" url="/issues/" active_tab=active_tab_page issue_badges=1 alert_waiting=issue_waiting_count alert_in_progress=issue_in_progress_count %}
+      {% include "core/_nav_item.html" with icon="bar-chart-3" label="รายงาน" tab="statistics" url="/statistics/" active_tab=active_tab_page %}
     </nav>
     <div class="p-4 border-t {% if is_system_admin %}border-gray-100{% else %}border-white/10{% endif %}">
       <div class="text-xs {% if is_system_admin %}text-gray-400{% else %}text-emerald-100{% endif %} mb-2 truncate">{{ user_email }}</div>
