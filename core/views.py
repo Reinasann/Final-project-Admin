@@ -315,6 +315,7 @@ def render_admin(request, template_name, context):
         'user_role': request.session.get('user_role', ORG_ADMIN),
         'user_role_th': thai_role(request.session.get('user_role', ORG_ADMIN)),
         'user_email': request.session.get('user_email', ''),
+        'current_user_id': request.session.get('user_id', ''),
         'organizations': get_organizations(request.session),
         'current_org': current_org(request),
         'issue_waiting_count': nav_issue_counts['waiting'],
@@ -611,6 +612,22 @@ def machines_view(request):
             if not assigned_machine and device.hardware_status == MachineInformation.HardwareStatus.AVAILABLE:
                 available_devices.append(row)
 
+    caretaker_query = User.objects.select_related('organization').filter(
+        status=User.Status.ACTIVE,
+    ).exclude(role=User.Role.SUPER_ADMIN)
+    if not is_system_admin(request):
+        caretaker_query = caretaker_query.filter(organization_id=current_org_id(request))
+    caretaker_options = [
+        {
+            'id': user.id,
+            'name': user.name,
+            'organization_id': user.organization_id,
+            'organization_name': user.organization.name if user.organization else '-',
+            'role_th': 'แอดมินหน่วยงาน' if user.role == User.Role.ORGANIZATION_ADMIN else 'ผู้เก็บขยะ',
+        }
+        for user in caretaker_query.order_by('organization__name', 'name', 'id')
+    ]
+
     machines_pagination = paginate_admin(request, filtered)
     devices_pagination = paginate_admin(
         request,
@@ -632,6 +649,7 @@ def machines_view(request):
         'device_rows_page': devices_pagination['items'],
         'devices_pagination': devices_pagination,
         'available_devices': available_devices,
+        'caretaker_options': caretaker_options,
         'device_credentials': device_credentials,
         'show_devices': request.GET.get('devices') == '1' or bool(device_credentials),
         'toast': toast,
@@ -748,11 +766,25 @@ def machine_add(request):
     device_serial = request.POST.get('device_serial', '').strip().upper()
     name = request.POST.get('name', '').strip()
     location = request.POST.get('location', '').strip()
+    caretaker_id = request.POST.get('caretaker_id', '').strip()
 
     organization = Organization.objects.filter(pk=organization_id).first()
+    caretaker = None
+    if organization and caretaker_id:
+        caretaker = User.objects.filter(
+            pk=caretaker_id,
+            organization=organization,
+            status=User.Status.ACTIVE,
+        ).exclude(role=User.Role.SUPER_ADMIN).first()
     if not name or not organization:
         request.session['toast'] = {
             'type': 'error', 'title': 'ข้อมูลไม่ครบ', 'message': 'กรุณาระบุชื่อเครื่องและหน่วยงาน',
+        }
+    elif caretaker_id and caretaker is None:
+        request.session['toast'] = {
+            'type': 'error',
+            'title': 'ผู้ดูแลเครื่องไม่ถูกต้อง',
+            'message': 'กรุณาเลือกผู้ดูแลเครื่องที่กำลังใช้งานและอยู่ในหน่วยงานเดียวกับเครื่อง',
         }
     elif not device_serial:
         request.session['toast'] = {
@@ -781,6 +813,7 @@ def machine_add(request):
                     location=location,
                     organization=organization,
                     device=device,
+                    caretaker=caretaker,
                     status=Machine.Status.OFFLINE,
                     installed_on=timezone.localdate(),
                     last_updated_at=timezone.now(),
@@ -807,6 +840,35 @@ def machine_edit(request):
     machine = Machine.objects.filter(pk=mid).first()
     if machine and (allowed_orgs is None or machine.organization_id in allowed_orgs):
         machine_saved = False
+        target_organization = machine.organization
+        if is_system_admin(request):
+            target_organization = Organization.objects.filter(
+                pk=request.POST.get('organization_id', machine.organization_id),
+            ).first()
+            if target_organization is None:
+                request.session['toast'] = {
+                    'type': 'error', 'title': 'ไม่พบหน่วยงาน', 'message': 'กรุณาเลือกหน่วยงานที่ถูกต้อง',
+                }
+                return redirect('machines')
+
+        caretaker = machine.caretaker
+        if 'caretaker_id' in request.POST:
+            caretaker_id = request.POST.get('caretaker_id', '').strip()
+            caretaker = None
+            if caretaker_id:
+                caretaker = User.objects.filter(
+                    pk=caretaker_id,
+                    organization=target_organization,
+                    status=User.Status.ACTIVE,
+                ).exclude(role=User.Role.SUPER_ADMIN).first()
+                if caretaker is None:
+                    request.session['toast'] = {
+                        'type': 'error',
+                        'title': 'ผู้ดูแลเครื่องไม่ถูกต้อง',
+                        'message': 'กรุณาเลือกผู้ดูแลเครื่องที่กำลังใช้งานและอยู่ในหน่วยงานเดียวกับเครื่อง',
+                    }
+                    return redirect('machines')
+
         coordinates_submitted = 'latitude' in request.POST or 'longitude' in request.POST
         try:
             latitude = parse_coordinate(request.POST.get('latitude'), -90, 90)
@@ -823,6 +885,7 @@ def machine_edit(request):
 
         machine.name = request.POST.get('name', machine.name).strip() or machine.name
         machine.location = request.POST.get('location', machine.location).strip()
+        machine.caretaker = caretaker
         machine.last_updated_at = timezone.now()
         if coordinates_submitted:
             machine.latitude = latitude
@@ -830,7 +893,7 @@ def machine_edit(request):
         if is_system_admin(request):
             code = request.POST.get('code', machine.code).strip()
             if code and not Machine.objects.filter(code=code).exclude(pk=machine.pk).exists(): machine.code = code
-            machine.organization_id = request.POST.get('organization_id', machine.organization_id)
+            machine.organization = target_organization
             device_serial = request.POST.get('device_serial', machine.device_id or '').strip().upper()
             if device_serial and device_serial != machine.device_id:
                 with transaction.atomic():
@@ -865,12 +928,31 @@ def machine_edit(request):
 def machine_toggle(request):
     mid = request.POST.get('id')
     allowed_orgs = None if is_system_admin(request) else {current_org_id(request)}
-    machine = Machine.objects.filter(pk=mid).first()
-    if machine and (allowed_orgs is None or machine.organization_id in allowed_orgs):
-        machine.status = Machine.Status.OFFLINE if machine.status == Machine.Status.ONLINE else Machine.Status.ONLINE
-        machine.last_updated_at = timezone.now()
-        machine.save(update_fields=['status', 'last_updated_at'])
-        request.session['toast'] = {'type': 'success', 'title': 'บันทึกแล้ว', 'message': f'เปลี่ยนสถานะเครื่อง {machine.code} แล้ว'}
+    with transaction.atomic():
+        machine = Machine.objects.select_for_update().filter(pk=mid).first()
+        if machine and (allowed_orgs is None or machine.organization_id in allowed_orgs):
+            if machine.caretaker_id != request.session.get('user_id'):
+                request.session['toast'] = {
+                    'type': 'error',
+                    'title': 'โหมดดูอย่างเดียว',
+                    'message': 'เฉพาะผู้ดูแลเครื่องเท่านั้นที่สามารถเปิดหรือปิดเครื่องนี้ได้',
+                }
+                return redirect('machines')
+            machine.status = Machine.Status.OFFLINE if machine.status == Machine.Status.ONLINE else Machine.Status.ONLINE
+            changed_at = timezone.now()
+            machine.telemetry_paused_at = (
+                changed_at if machine.status == Machine.Status.OFFLINE else None
+            )
+            machine.last_updated_at = changed_at
+            machine.save(update_fields=[
+                'status', 'telemetry_paused_at', 'last_updated_at',
+            ])
+            action_text = 'เปิดรับข้อมูล' if machine.status == Machine.Status.ONLINE else 'ปิดรับข้อมูล'
+            request.session['toast'] = {
+                'type': 'success',
+                'title': 'บันทึกแล้ว',
+                'message': f'{action_text}จากเครื่อง {machine.code} แล้ว',
+            }
     return redirect('machines')
 
 

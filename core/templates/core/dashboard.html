@@ -77,14 +77,46 @@
 
     <div class="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
       <h2 class="text-lg font-bold text-gray-800 mb-4">สัดส่วนขยะ</h2>
-      <div class="flex flex-col items-center gap-5"><canvas id="waste-pie-chart" width="320" height="320" class="max-w-full"></canvas><div id="pie-legend" class="grid grid-cols-1 gap-y-2 text-sm text-gray-600"></div></div>
+      <div class="flex flex-col items-center gap-5"><div class="relative"><canvas id="waste-pie-chart" width="320" height="320" class="max-w-full cursor-pointer"></canvas><div id="pie-tooltip" class="pointer-events-none absolute hidden -translate-x-1/2 -translate-y-full whitespace-nowrap rounded-lg bg-gray-900 px-3 py-2 text-xs font-medium text-white shadow-lg"></div></div><div id="pie-legend" class="grid grid-cols-1 gap-y-2 text-sm text-gray-600"></div></div>
       {{ waste_distribution|json_script:"waste-distribution" }}
     </div>
   </section>
 </div>
 <script>
 lucide.createIcons();
-const wasteDistribution=JSON.parse(document.getElementById('waste-distribution').textContent);const pieCanvas=document.getElementById('waste-pie-chart');const pieCtx=pieCanvas.getContext('2d');const pieTotal=wasteDistribution.reduce((sum,item)=>sum+item.value,0);let pieStart=-Math.PI/2;wasteDistribution.forEach(item=>{const slice=pieTotal?item.value/pieTotal*Math.PI*2:Math.PI*2/wasteDistribution.length;pieCtx.beginPath();pieCtx.moveTo(160,160);pieCtx.arc(160,160,132,pieStart,pieStart+slice);pieCtx.closePath();pieCtx.fillStyle=item.color;pieCtx.fill();pieStart+=slice});pieCtx.beginPath();pieCtx.arc(160,160,76,0,Math.PI*2);pieCtx.fillStyle='#fff';pieCtx.fill();pieCtx.fillStyle='#111827';pieCtx.font='bold 24px Sarabun';pieCtx.textAlign='center';pieCtx.fillText((pieTotal||0).toFixed(1),160,156);pieCtx.font='14px Sarabun';pieCtx.fillStyle='#6b7280';pieCtx.fillText('กิโลกรัม',160,180);document.getElementById('pie-legend').innerHTML=wasteDistribution.map(item=>`<div class="flex items-center gap-2"><span class="h-3 w-3 rounded-full" style="background:${item.color}"></span>${item.label}: ${item.value.toFixed(1)} กก.</div>`).join('');
+const wasteDistribution=JSON.parse(document.getElementById('waste-distribution').textContent);
+const pieCanvas=document.getElementById('waste-pie-chart');
+const pieCtx=pieCanvas.getContext('2d');
+const pieTooltip=document.getElementById('pie-tooltip');
+const pieTotal=wasteDistribution.reduce((sum,item)=>sum+item.value,0);
+const pieSegments=[];
+let pieStart=-Math.PI/2;
+wasteDistribution.forEach(item=>{
+  const slice=pieTotal?item.value/pieTotal*Math.PI*2:Math.PI*2/wasteDistribution.length;
+  const percentage=pieTotal?item.value/pieTotal*100:0;
+  pieSegments.push({...item,start:pieStart,end:pieStart+slice,percentage});
+  pieCtx.beginPath();pieCtx.moveTo(160,160);pieCtx.arc(160,160,132,pieStart,pieStart+slice);pieCtx.closePath();pieCtx.fillStyle=item.color;pieCtx.fill();pieStart+=slice
+});
+pieCtx.beginPath();pieCtx.arc(160,160,76,0,Math.PI*2);pieCtx.fillStyle='#fff';pieCtx.fill();pieCtx.fillStyle='#111827';pieCtx.font='bold 24px Sarabun';pieCtx.textAlign='center';pieCtx.fillText((pieTotal||0).toFixed(1),160,156);pieCtx.font='14px Sarabun';pieCtx.fillStyle='#6b7280';pieCtx.fillText('กิโลกรัม',160,180);
+document.getElementById('pie-legend').innerHTML=wasteDistribution.map(item=>`<div class="flex items-center gap-2"><span class="h-3 w-3 rounded-full" style="background:${item.color}"></span>${item.label}: ${item.value.toFixed(1)} กก.</div>`).join('');
+pieCanvas.addEventListener('mousemove',event=>{
+  const rect=pieCanvas.getBoundingClientRect();
+  const scaleX=pieCanvas.width/rect.width;
+  const scaleY=pieCanvas.height/rect.height;
+  const x=(event.clientX-rect.left)*scaleX-160;
+  const y=(event.clientY-rect.top)*scaleY-160;
+  const distance=Math.hypot(x,y);
+  if(distance<76||distance>132){pieTooltip.classList.add('hidden');return}
+  let angle=Math.atan2(y,x);
+  if(angle< -Math.PI/2)angle+=Math.PI*2;
+  const segment=pieSegments.find(item=>angle>=item.start&&angle<item.end);
+  if(!segment){pieTooltip.classList.add('hidden');return}
+  pieTooltip.textContent=`${segment.label}: ${segment.value.toFixed(1)} กก. (${segment.percentage.toFixed(1)}%)`;
+  pieTooltip.style.left=`${event.clientX-rect.left}px`;
+  pieTooltip.style.top=`${event.clientY-rect.top-8}px`;
+  pieTooltip.classList.remove('hidden');
+});
+pieCanvas.addEventListener('mouseleave',()=>pieTooltip.classList.add('hidden'));
 const chartPayload = JSON.parse(document.getElementById('chart-payload').textContent);
 const chartCanvas = document.getElementById('waste-line-chart');
 const chartCtx = chartCanvas.getContext('2d');

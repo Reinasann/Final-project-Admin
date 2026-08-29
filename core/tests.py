@@ -271,6 +271,21 @@ class UserManagementPermissionTests(TestCase):
             self.collector_b.email,
         })
 
+    def test_organization_selector_is_rendered_in_organization_column(self):
+        self.login(self.super_admin.email)
+
+        response = self.client.get("/users/")
+        html = response.content.decode()
+        organization_cell_start = html.index("data-user-organization-cell")
+        role_cell_start = html.index("data-user-role-cell", organization_cell_start)
+        next_cell_start = html.index("data-account-status-cell", role_cell_start)
+
+        organization_cell = html[organization_cell_start:role_cell_start]
+        role_cell = html[role_cell_start:next_cell_start]
+        self.assertIn('name="organization_id"', organization_cell)
+        self.assertNotIn('name="organization_id"', role_cell)
+        self.assertIn("แอดมินหน่วยงาน", role_cell)
+
     def test_super_admin_adds_only_an_organization_admin(self):
         self.login(self.super_admin.email)
         response = self.client.post("/users/add/", data={
@@ -441,7 +456,7 @@ class ApiTests(TestCase):
         self.device.save()
         self.machine = Machine.objects.create(
             id="M001", organization=self.organization, device=self.device,
-            code="SR-001", name="Station A", location="Cafeteria",
+            caretaker=self.user, code="SR-001", name="Station A", location="Cafeteria",
         )
         for waste_type in MachineBin.WasteType.values:
             MachineBin.objects.create(machine=self.machine, waste_type=waste_type)
@@ -801,6 +816,27 @@ class ApiTests(TestCase):
         self.assertEqual(self.machine.status, Machine.Status.OFFLINE)
         self.assertEqual(response.json()["status"], Machine.Status.OFFLINE)
 
+    def test_collection_requires_machine_to_be_offline(self):
+        token = self.login_token()
+        auth = {"HTTP_AUTHORIZATION": f"Bearer {token}"}
+        self.machine.status = Machine.Status.ONLINE
+        self.machine.save(update_fields=["status"])
+
+        response = self.client.post(
+            "/api/v1/collections/create/",
+            data=json.dumps({
+                "machine_id": self.machine.id,
+                "waste_type": MachineBin.WasteType.PLASTIC,
+                "weight_kg": 2.5,
+            }),
+            content_type="application/json",
+            **auth,
+        )
+
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(response.json()["detail"], "กรุณาปิดเครื่องก่อนทำการเก็บขยะ")
+        self.assertFalse(CollectionHistory.objects.exists())
+
     def test_collector_sees_all_machines_in_own_organization_only(self):
         same_organization_machine = Machine.objects.create(
             id="M002",
@@ -839,6 +875,110 @@ class ApiTests(TestCase):
             404,
         )
 
+    def test_non_caretaker_can_view_machine_but_cannot_operate_it(self):
+        viewer = User(
+            id="U-VIEW",
+            organization=self.organization,
+            name="Read Only Collector",
+            email="viewer@recycle.com",
+            role=User.Role.COLLECTOR,
+            status=User.Status.ACTIVE,
+        )
+        viewer.set_password("password123")
+        viewer.save()
+        token = self.login_token(viewer.email, "password123")
+        auth = {"HTTP_AUTHORIZATION": f"Bearer {token}"}
+
+        detail_response = self.client.get(
+            f"/api/v1/machines/{self.machine.id}/",
+            **auth,
+        )
+        self.assertEqual(detail_response.status_code, 200)
+        self.assertFalse(detail_response.json()["can_operate"])
+        self.assertEqual(
+            detail_response.json()["caretaker"],
+            {"id": self.user.id, "name": self.user.name},
+        )
+
+        status_response = self.client.patch(
+            f"/api/v1/machines/{self.machine.id}/status/",
+            data=json.dumps({"is_on": True}),
+            content_type="application/json",
+            **auth,
+        )
+        self.assertEqual(status_response.status_code, 403)
+
+        collection_response = self.client.post(
+            "/api/v1/collections/create/",
+            data=json.dumps({
+                "machine_id": self.machine.id,
+                "waste_type": MachineBin.WasteType.PLASTIC,
+                "weight_kg": 1.25,
+            }),
+            content_type="application/json",
+            **auth,
+        )
+        self.assertEqual(collection_response.status_code, 403)
+        self.assertFalse(CollectionHistory.objects.filter(collector=viewer).exists())
+
+        category = IssueCategory.objects.create(name="Read only test")
+        issue_response = self.client.post(
+            "/api/v1/issues/create/",
+            data=json.dumps({
+                "machine_id": self.machine.id,
+                "category_id": category.id,
+                "description": "Should not be created",
+            }),
+            content_type="application/json",
+            **auth,
+        )
+        self.assertEqual(issue_response.status_code, 403)
+        self.assertFalse(IssueReport.objects.filter(reporter=viewer).exists())
+
+    def test_admin_machine_toggle_is_limited_to_assigned_caretaker(self):
+        organization_admin = User(
+            id="A-CARE",
+            organization=self.organization,
+            name="Organization Admin",
+            email="organization-admin@recycle.com",
+            role=User.Role.ORGANIZATION_ADMIN,
+            status=User.Status.ACTIVE,
+        )
+        organization_admin.set_password("password123")
+        organization_admin.save()
+        login_response = self.client.post("/", data={
+            "email": organization_admin.email,
+            "password": "password123",
+        })
+        self.assertRedirects(login_response, "/dashboard/")
+
+        response = self.client.post(
+            "/machines/toggle/",
+            data={"id": self.machine.id},
+        )
+        self.assertRedirects(response, "/machines/")
+        self.machine.refresh_from_db()
+        self.assertEqual(self.machine.status, Machine.Status.OFFLINE)
+
+        self.machine.caretaker = organization_admin
+        self.machine.save(update_fields=["caretaker"])
+        response = self.client.post(
+            "/machines/toggle/",
+            data={"id": self.machine.id},
+        )
+        self.assertRedirects(response, "/machines/")
+        self.machine.refresh_from_db()
+        self.assertEqual(self.machine.status, Machine.Status.ONLINE)
+
+        response = self.client.post(
+            "/machines/toggle/",
+            data={"id": self.machine.id},
+        )
+        self.assertRedirects(response, "/machines/")
+        self.machine.refresh_from_db()
+        self.assertEqual(self.machine.status, Machine.Status.OFFLINE)
+        self.assertIsNotNone(self.machine.telemetry_paused_at)
+
     def test_login_page_contains_skeleton_loading(self):
         response = self.client.get("/")
         self.assertEqual(response.status_code, 200)
@@ -862,6 +1002,8 @@ class ApiTests(TestCase):
         self.assertContains(dashboard_response, 'id="chart-start-date-picker" type="date"')
         self.assertContains(dashboard_response, 'id="chart-end-date-picker" type="date"')
         self.assertContains(dashboard_response, 'aria-label="เปิดปฏิทินวันที่เริ่มต้น"')
+        self.assertContains(dashboard_response, 'id="pie-tooltip"')
+        self.assertContains(dashboard_response, 'segment.percentage.toFixed(1)')
         self.assertEqual(len(dashboard_response.context["chart_payload"]["dates"]), 366)
         self.assertEqual(
             dashboard_response.context["chart_payload"]["defaultRange"],
@@ -974,6 +1116,11 @@ class ApiTests(TestCase):
             response.json()["results"][0]["serial_number"],
             "ESP32-SR-001",
         )
+        self.assertEqual(
+            response.json()["results"][0]["caretaker"],
+            {"id": self.user.id, "name": self.user.name},
+        )
+        self.assertTrue(response.json()["results"][0]["can_operate"])
 
     def test_super_admin_prepares_serial_before_adding_machine(self):
         login_response = self.client.post("/", data={
@@ -1011,11 +1158,13 @@ class ApiTests(TestCase):
             "device_serial": "ESP32-SR-005",
             "name": "Station 5",
             "location": "Building 5",
+            "caretaker_id": self.user.id,
         })
         self.assertRedirects(response, "/machines/")
         machine = Machine.objects.get(code="SR-005")
         self.assertEqual(machine.name, "Station 5")
         self.assertEqual(machine.device_id, "ESP32-SR-005")
+        self.assertEqual(machine.caretaker, self.user)
         self.assertEqual(machine.bins.count(), 3)
         self.assertIsNotNone(machine.installed_on)
         prepared_device.refresh_from_db()
@@ -1047,6 +1196,9 @@ class ApiTests(TestCase):
             HTTP_X_DEVICE_KEY="device-secret-005",
         )
         self.assertEqual(telemetry_response.status_code, 201)
+        self.assertTrue(telemetry_response.json()["auto_online"])
+        machine.refresh_from_db()
+        self.assertEqual(machine.status, Machine.Status.ONLINE)
 
     def test_admin_can_choose_and_save_machine_coordinates(self):
         login_response = self.client.post("/", data={
@@ -1168,25 +1320,80 @@ class ApiTests(TestCase):
         self.assertEqual(plastic.current_level_percent, 0)
 
     def test_esp32_telemetry_updates_latest_state_and_history(self):
+        payload = {
+            "device_id": "ESP32-SR-001",
+            "recorded_at": "2026-07-21T10:30:00+07:00",
+            "bins": [
+                {"waste_type": "plastic", "weight_kg": 4.25, "level_percent": 36.5},
+                {"waste_type": "glass", "weight_kg": 12.4, "level_percent": 81},
+                {"waste_type": "can", "weight_kg": 2.1, "level_percent": 20},
+            ],
+        }
         response = self.client.post(
             "/api/v1/iot/telemetry/",
-            data=json.dumps({
-                "device_id": "ESP32-SR-001",
-                "recorded_at": "2026-07-21T10:30:00+07:00",
-                "bins": [
-                    {"waste_type": "plastic", "weight_kg": 4.25, "level_percent": 36.5},
-                    {"waste_type": "glass", "weight_kg": 12.4, "level_percent": 81},
-                    {"waste_type": "can", "weight_kg": 2.1, "level_percent": 20},
-                ],
-            }),
+            data=json.dumps(payload),
             content_type="application/json",
             HTTP_X_DEVICE_KEY="device-secret",
         )
         self.assertEqual(response.status_code, 201)
+        self.assertTrue(response.json()["auto_online"])
         self.assertEqual(Telemetry.objects.count(), 3)
+        self.machine.refresh_from_db()
+        self.assertEqual(self.machine.status, Machine.Status.ONLINE)
+        self.assertIsNone(self.machine.telemetry_paused_at)
         plastic = MachineBin.objects.get(machine=self.machine, waste_type="plastic")
         self.assertEqual(str(plastic.current_weight_kg), "4.25")
         self.assertEqual(str(plastic.current_level_percent), "36.50")
+
+    def test_manual_pause_rejects_telemetry_then_auto_resumes_after_30_minutes(self):
+        token = self.login_token()
+        auth = {"HTTP_AUTHORIZATION": f"Bearer {token}"}
+        pause_response = self.client.patch(
+            f"/api/v1/machines/{self.machine.id}/status/",
+            data=json.dumps({"is_on": False}),
+            content_type="application/json",
+            **auth,
+        )
+        self.assertEqual(pause_response.status_code, 200)
+        self.assertIsNotNone(pause_response.json()["telemetry_paused_at"])
+        payload = {
+            "device_id": "ESP32-SR-001",
+            "recorded_at": "2026-08-29T10:30:00+07:00",
+            "bins": [
+                {"waste_type": "plastic", "weight_kg": 5, "level_percent": 50},
+                {"waste_type": "glass", "weight_kg": 2, "level_percent": 20},
+                {"waste_type": "can", "weight_kg": 1, "level_percent": 10},
+            ],
+        }
+
+        rejected_response = self.client.post(
+            "/api/v1/iot/telemetry/",
+            data=json.dumps(payload),
+            content_type="application/json",
+            HTTP_X_DEVICE_KEY="device-secret",
+        )
+        self.assertEqual(rejected_response.status_code, 409)
+        self.assertFalse(rejected_response.json()["accepted"])
+        self.assertGreater(rejected_response.json()["retry_after_seconds"], 0)
+        self.assertEqual(Telemetry.objects.count(), 0)
+        self.device.refresh_from_db()
+        self.assertIsNotNone(self.device.last_seen_at)
+
+        Machine.objects.filter(pk=self.machine.pk).update(
+            telemetry_paused_at=timezone.now() - timedelta(minutes=31),
+        )
+        resumed_response = self.client.post(
+            "/api/v1/iot/telemetry/",
+            data=json.dumps(payload),
+            content_type="application/json",
+            HTTP_X_DEVICE_KEY="device-secret",
+        )
+        self.assertEqual(resumed_response.status_code, 201)
+        self.assertTrue(resumed_response.json()["auto_online"])
+        self.machine.refresh_from_db()
+        self.assertEqual(self.machine.status, Machine.Status.ONLINE)
+        self.assertIsNone(self.machine.telemetry_paused_at)
+        self.assertEqual(Telemetry.objects.count(), 3)
 
     def test_full_bin_alert_is_broadcast_and_first_acknowledgement_wins(self):
         colleague = User(

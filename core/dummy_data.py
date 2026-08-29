@@ -38,7 +38,7 @@ def get_organizations(session):
 
 def get_machines(session):
     result = []
-    rows = Machine.objects.select_related('device').prefetch_related('bins').order_by(
+    rows = Machine.objects.select_related('device', 'caretaker').prefetch_related('bins').order_by(
         '-created_at', '-id',
     )
     for row in rows:
@@ -51,6 +51,8 @@ def get_machines(session):
                        'longitude': str(row.longitude) if row.longitude is not None else '',
                        'serial_number': row.device_id or '',
                        'device_model': row.device.model if row.device else '',
+                       'caretaker_id': row.caretaker_id or '',
+                       'caretaker_name': row.caretaker.name if row.caretaker else '',
                        'lastUpdate': display_datetime(row.last_updated_at),
                        'installDate': display_date(row.installed_on),
                        'organization_id': row.organization_id})

@@ -136,15 +136,13 @@
                 <div><div>{{ user.name }}</div><div class="text-xs text-gray-400">{{ user.email }}</div></div>
               </div>
             </td>
-            <td class="p-4 text-sm text-gray-500">{{ user.organization_name }}</td>
-            <td class="p-4">
+            <td class="p-4 text-sm text-gray-500" data-user-organization-cell>
               {% if is_system_admin and user.can_manage %}
               <form id="form-role-{{ user.id }}" method="post" action="/users/action/" class="flex flex-wrap items-center gap-2">
                 {% csrf_token %}
                 <input type="hidden" name="id" value="{{ user.id }}"/>
                 <input type="hidden" name="action" value="role"/>
                 <input type="hidden" name="return_view" value="{{ view_scope }}"/>
-                <span class="px-2 py-1 rounded bg-blue-50 text-blue-700 text-xs font-medium">แอดมินหน่วยงาน</span>
                 <select name="organization_id" class="border rounded px-2 py-1 text-sm">
                   {% for org in organizations %}<option value="{{ org.id }}" {% if user.organization_id == org.id %}selected{% endif %}>{{ org.name }}</option>{% endfor %}
                 </select>
@@ -153,8 +151,11 @@
                 </button>
               </form>
               {% else %}
-                {% if user.role == 'Admin' %}<span class="px-2 py-1 rounded bg-blue-50 text-blue-700 text-xs font-medium">แอดมินหน่วยงาน</span>{% else %}<span class="px-2 py-1 rounded bg-emerald-50 text-emerald-700 text-xs font-medium">ผู้เก็บขยะ</span>{% endif %}
+                {{ user.organization_name }}
               {% endif %}
+            </td>
+            <td class="p-4" data-user-role-cell>
+              {% if user.role == 'Admin' %}<span class="px-2 py-1 rounded bg-blue-50 text-blue-700 text-xs font-medium">แอดมินหน่วยงาน</span>{% else %}<span class="px-2 py-1 rounded bg-emerald-50 text-emerald-700 text-xs font-medium">ผู้เก็บขยะ</span>{% endif %}
             </td>
             <td class="p-4" data-account-status-cell>
               <div class="flex items-center justify-center gap-3">

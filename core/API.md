@@ -13,15 +13,15 @@ Base URL: `/api/v1/`. Flutter endpoints use `Authorization: Bearer <access_token
 | `POST /me/push-devices/unregister/` | Disable the supplied FCM `token` for the signed-in user. |
 | `PATCH /me/profile/` | Update `name`, `phone`. |
 | `POST /me/change-password/` | Send `old_password`, `new_password`. |
-| `GET /machines/` | Super admins see every machine; other users see every machine in their organization, including current bin values. |
+| `GET /machines/` | Super admins see every machine; other users see every machine in their organization. Each result includes the optional `caretaker` and a `can_operate` flag. |
 | `GET /machines/{id}/` | One machine. |
-| `PATCH /machines/{id}/status/` | Persist machine status with boolean `is_on`. |
+| `PATCH /machines/{id}/status/` | Persist machine status with boolean `is_on`; caretaker only. |
 | `GET /machines/{id}/telemetry/?limit=60` | Recent history, maximum 500 readings. |
 | `GET /collections/?mine=1` | Collection history; `mine=1` limits results to records collected by the signed-in user. |
-| `POST /collections/create/` | Save a manual collection: `machine_id`, `waste_type`, `weight_kg`, optional `label_code`. |
+| `POST /collections/create/` | Save a manual collection: `machine_id`, `waste_type`, `weight_kg`, optional `label_code`; caretaker only. The machine must be `Offline`; otherwise the API returns `409`. |
 | `GET /issues/?mine=1` | Issues for visible machines; `mine=1` limits results to reports created by the signed-in user. |
 | `GET /issue-categories/` | Active issue categories for the report form. |
-| `POST /issues/create/` | Create an issue: `machine_id`, `category_id`, `description`. |
+| `POST /issues/create/` | Create an issue: `machine_id`, `category_id`, `description`; caretaker only. |
 | `GET /notifications/` | Signed-in user's alerts. |
 | `POST /notifications/{id}/read/` | Mark one alert as read. |
 | `POST /notifications/{id}/acknowledge/` | Accept an actionable full-bin alert. The first acceptance wins and other active users in the organization receive a notification naming the accepting user. |
@@ -34,6 +34,15 @@ the response includes `debug_code` while `DEBUG=True`. For deployment, configure
 ## ESP32 telemetry
 
 `POST /iot/telemetry/` uses `X-Device-Key` instead of a user token. The ESP32 sends the values it already calculated; the server validates and records them without deriving weight or level.
+
+Turning a machine off in the app or admin system pauses telemetry ingestion for
+30 minutes. Valid device submissions during the pause update only the device's
+`last_seen_at` and return HTTP `409` with `accepted: false`,
+`retry_after_seconds`, and `auto_online_at`; telemetry and current bin values are
+not changed. After the pause expires, the next valid submission automatically
+changes the machine to `Online` and is recorded with `auto_online: true`. A new
+or otherwise `Offline` machine without a manual pause also becomes `Online` on
+its first valid submission. Machines in `Maintenance` never auto-resume.
 
 When a reported level reaches the bin's `full_threshold_percent`, the server
 creates one active alert and delivers it to every active user in the machine's

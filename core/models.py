@@ -99,6 +99,13 @@ class Machine(models.Model):
     device = models.OneToOneField(
         MachineInformation, on_delete=models.PROTECT, related_name="machine", null=True, blank=True
     )
+    caretaker = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        related_name="assigned_machines",
+        null=True,
+        blank=True,
+    )
     code = models.CharField(max_length=20, unique=True)
     name = models.CharField(max_length=100)
     location = models.CharField(max_length=255)
@@ -107,6 +114,7 @@ class Machine(models.Model):
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.OFFLINE)
     installed_on = models.DateField(null=True, blank=True)
     last_updated_at = models.DateTimeField(null=True, blank=True)
+    telemetry_paused_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(default=timezone.now, editable=False)
 
     def __str__(self):

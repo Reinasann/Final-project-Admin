@@ -22,6 +22,8 @@ from .models import (
 )
 from .push import send_notification_deliveries
 
+TELEMETRY_AUTO_RESUME_AFTER = timedelta(minutes=30)
+
 
 def response_error(message, status=400):
     return JsonResponse({"detail": message}, status=status)
@@ -46,7 +48,12 @@ def decimal_value(value, field, minimum=None, maximum=None):
     return parsed
 
 
-def serialize_machine(machine):
+def can_operate_machine(user, machine):
+    """Only the explicitly assigned caretaker may mutate a machine."""
+    return bool(machine.caretaker_id and machine.caretaker_id == user.id)
+
+
+def serialize_machine(machine, user=None):
     return {
         "id": machine.id,
         "code": machine.code,
@@ -56,6 +63,15 @@ def serialize_machine(machine):
         "latitude": str(machine.latitude) if machine.latitude is not None else None,
         "longitude": str(machine.longitude) if machine.longitude is not None else None,
         "status": machine.status,
+        "caretaker": ({
+            "id": machine.caretaker.id,
+            "name": machine.caretaker.name,
+        } if machine.caretaker else None),
+        "can_operate": can_operate_machine(user, machine) if user else False,
+        "telemetry_paused_at": (
+            machine.telemetry_paused_at.isoformat()
+            if machine.telemetry_paused_at else None
+        ),
         "last_updated_at": machine.last_updated_at.isoformat() if machine.last_updated_at else None,
         "bins": [
             {
@@ -114,7 +130,7 @@ def token_required(view):
 
 
 def visible_machines(user):
-    machines = Machine.objects.select_related("organization").prefetch_related(
+    machines = Machine.objects.select_related("organization", "caretaker").prefetch_related(
         "bins",
     ).order_by("-created_at", "-id")
     if user.role == User.Role.SUPER_ADMIN:
@@ -410,7 +426,12 @@ def change_password(request):
 @require_GET
 @token_required
 def machines(request):
-    return JsonResponse({"results": [serialize_machine(machine) for machine in visible_machines(request.api_user)]})
+    return JsonResponse({
+        "results": [
+            serialize_machine(machine, request.api_user)
+            for machine in visible_machines(request.api_user)
+        ],
+    })
 
 
 @require_GET
@@ -419,7 +440,7 @@ def machine_detail(request, machine_id):
     machine = visible_machines(request.api_user).filter(pk=machine_id).first()
     if machine is None:
         return response_error("Machine not found.", 404)
-    return JsonResponse(serialize_machine(machine))
+    return JsonResponse(serialize_machine(machine, request.api_user))
 
 
 @csrf_exempt
@@ -429,13 +450,26 @@ def update_machine_status(request, machine_id):
     payload = json_body(request)
     if payload is None or not isinstance(payload.get("is_on"), bool):
         return response_error("is_on must be a boolean.")
-    machine = visible_machines(request.api_user).filter(pk=machine_id).first()
-    if machine is None:
-        return response_error("Machine not found.", 404)
-    machine.status = Machine.Status.ONLINE if payload["is_on"] else Machine.Status.OFFLINE
-    machine.last_updated_at = timezone.now()
-    machine.save(update_fields=["status", "last_updated_at"])
-    return JsonResponse(serialize_machine(machine))
+    with transaction.atomic():
+        machine_query = Machine.objects.select_for_update().filter(pk=machine_id)
+        if request.api_user.role != User.Role.SUPER_ADMIN:
+            machine_query = machine_query.filter(
+                organization_id=request.api_user.organization_id,
+            )
+        machine = machine_query.first()
+        if machine is None:
+            return response_error("Machine not found.", 404)
+        if not can_operate_machine(request.api_user, machine):
+            return response_error("เฉพาะผู้ดูแลเครื่องเท่านั้นที่สามารถใช้งานเครื่องนี้ได้", 403)
+        changed_at = timezone.now()
+        machine.status = Machine.Status.ONLINE if payload["is_on"] else Machine.Status.OFFLINE
+        machine.telemetry_paused_at = None if payload["is_on"] else changed_at
+        machine.last_updated_at = changed_at
+        machine.save(update_fields=[
+            "status", "telemetry_paused_at", "last_updated_at",
+        ])
+        response_payload = serialize_machine(machine, request.api_user)
+    return JsonResponse(response_payload)
 
 
 @require_GET
@@ -464,6 +498,10 @@ def create_collection(request):
     machine = visible_machines(request.api_user).filter(pk=payload.get("machine_id")).first()
     if machine is None:
         return response_error("Machine not found.", 404)
+    if not can_operate_machine(request.api_user, machine):
+        return response_error("เฉพาะผู้ดูแลเครื่องเท่านั้นที่สามารถเก็บขยะจากเครื่องนี้ได้", 403)
+    if machine.status != Machine.Status.OFFLINE:
+        return response_error("กรุณาปิดเครื่องก่อนทำการเก็บขยะ", 409)
     waste_type = payload.get("waste_type")
     bin_item = machine.bins.filter(waste_type=waste_type).first()
     if bin_item is None:
@@ -551,6 +589,8 @@ def create_issue(request):
     description = str(payload.get("description", "")).strip()
     if machine is None or category is None:
         return response_error("Machine or issue category was not found.", 404)
+    if not can_operate_machine(request.api_user, machine):
+        return response_error("เฉพาะผู้ดูแลเครื่องเท่านั้นที่สามารถแจ้งปัญหาเครื่องนี้ได้", 403)
     if not description:
         return response_error("description is required.")
     item = IssueReport.objects.create(machine=machine, category=category, reporter=request.api_user, description=description)
@@ -683,45 +723,88 @@ def ingest_telemetry(request):
         return response_error("Request body must be valid JSON.")
     device_id = str(payload.get("device_id", ""))
     device_key = request.headers.get("X-Device-Key", "")
-    machine = Machine.objects.select_related("device").prefetch_related("bins").filter(device_id=device_id).first()
-    if machine is None or not machine.device.check_api_key(device_key):
-        return response_error("Invalid device credentials.", 401)
-    timestamp = parse_datetime(str(payload.get("recorded_at", ""))) or timezone.now()
-    if timezone.is_naive(timestamp):
-        timestamp = timezone.make_aware(timestamp, timezone.get_current_timezone())
-    readings = payload.get("bins")
-    if not isinstance(readings, list) or not readings:
-        return response_error("bins must be a non-empty list.")
-    bins_by_type = {item.waste_type: item for item in machine.bins.all()}
-    created = []
-    for reading in readings:
-        if not isinstance(reading, dict) or reading.get("waste_type") not in bins_by_type:
-            return response_error("Each reading must reference a configured waste_type.")
-        try:
-            weight = decimal_value(reading.get("weight_kg"), "weight_kg", Decimal("0"))
-            level = decimal_value(reading.get("level_percent"), "level_percent", Decimal("0"), Decimal("100"))
-        except ValueError as error:
-            return response_error(str(error))
-        bin_item = bins_by_type[reading["waste_type"]]
-        telemetry, created_now = Telemetry.objects.get_or_create(
-            bin=bin_item, recorded_at=timestamp,
-            defaults={"weight_kg": weight, "level_percent": level, "raw_payload": reading},
-        )
-        if not created_now:
-            telemetry.weight_kg, telemetry.level_percent, telemetry.raw_payload = weight, level, reading
-            telemetry.save(update_fields=["weight_kg", "level_percent", "raw_payload"])
-        bin_item.current_weight_kg = weight
-        bin_item.current_level_percent = level
-        bin_item.last_measured_at = timestamp
-        bin_item.save(update_fields=["current_weight_kg", "current_level_percent", "last_measured_at"])
-        if level >= bin_item.full_threshold_percent:
-            create_full_bin_notification(machine, bin_item, level)
-        else:
-            resolve_full_bin_notification(machine, bin_item.waste_type, timestamp)
-        created.append({"waste_type": bin_item.waste_type, "telemetry_id": telemetry.id})
-    machine.status = Machine.Status.ONLINE
-    machine.last_updated_at = timestamp
-    machine.save(update_fields=["status", "last_updated_at"])
-    machine.device.last_seen_at = timezone.now()
-    machine.device.save(update_fields=["last_seen_at"])
-    return JsonResponse({"machine_id": machine.id, "recorded_at": timestamp.isoformat(), "readings": created}, status=201)
+    with transaction.atomic():
+        machine = Machine.objects.select_for_update().prefetch_related(
+            "bins",
+        ).filter(device_id=device_id).first()
+        if machine is None or not machine.device.check_api_key(device_key):
+            return response_error("Invalid device credentials.", 401)
+
+        received_at = timezone.now()
+        machine.device.last_seen_at = received_at
+        machine.device.save(update_fields=["last_seen_at"])
+
+        if machine.status == Machine.Status.MAINTENANCE:
+            return JsonResponse({
+                "detail": "เครื่องอยู่ระหว่างซ่อมบำรุง ระบบจึงไม่รับข้อมูลจากอุปกรณ์",
+                "machine_id": machine.id,
+                "accepted": False,
+            }, status=409)
+        if machine.status == Machine.Status.OFFLINE and machine.telemetry_paused_at:
+            auto_online_at = machine.telemetry_paused_at + TELEMETRY_AUTO_RESUME_AFTER
+            if received_at < auto_online_at:
+                retry_after_seconds = max(
+                    1,
+                    int((auto_online_at - received_at).total_seconds()) + 1,
+                )
+                return JsonResponse({
+                    "detail": "เครื่องถูกปิดชั่วคราว ระบบยังไม่รับข้อมูลจากอุปกรณ์",
+                    "machine_id": machine.id,
+                    "accepted": False,
+                    "retry_after_seconds": retry_after_seconds,
+                    "auto_online_at": auto_online_at.isoformat(),
+                }, status=409)
+
+        timestamp = parse_datetime(str(payload.get("recorded_at", ""))) or received_at
+        if timezone.is_naive(timestamp):
+            timestamp = timezone.make_aware(timestamp, timezone.get_current_timezone())
+        readings = payload.get("bins")
+        if not isinstance(readings, list) or not readings:
+            return response_error("bins must be a non-empty list.")
+        bins_by_type = {item.waste_type: item for item in machine.bins.all()}
+        parsed_readings = []
+        for reading in readings:
+            if not isinstance(reading, dict) or reading.get("waste_type") not in bins_by_type:
+                return response_error("Each reading must reference a configured waste_type.")
+            try:
+                weight = decimal_value(reading.get("weight_kg"), "weight_kg", Decimal("0"))
+                level = decimal_value(reading.get("level_percent"), "level_percent", Decimal("0"), Decimal("100"))
+            except ValueError as error:
+                return response_error(str(error))
+            parsed_readings.append((reading, weight, level))
+
+        auto_online = machine.status == Machine.Status.OFFLINE
+        if auto_online:
+            machine.status = Machine.Status.ONLINE
+            machine.telemetry_paused_at = None
+
+        created = []
+        for reading, weight, level in parsed_readings:
+            bin_item = bins_by_type[reading["waste_type"]]
+            telemetry, created_now = Telemetry.objects.get_or_create(
+                bin=bin_item, recorded_at=timestamp,
+                defaults={"weight_kg": weight, "level_percent": level, "raw_payload": reading},
+            )
+            if not created_now:
+                telemetry.weight_kg, telemetry.level_percent, telemetry.raw_payload = weight, level, reading
+                telemetry.save(update_fields=["weight_kg", "level_percent", "raw_payload"])
+            bin_item.current_weight_kg = weight
+            bin_item.current_level_percent = level
+            bin_item.last_measured_at = timestamp
+            bin_item.save(update_fields=["current_weight_kg", "current_level_percent", "last_measured_at"])
+            if level >= bin_item.full_threshold_percent:
+                create_full_bin_notification(machine, bin_item, level)
+            else:
+                resolve_full_bin_notification(machine, bin_item.waste_type, timestamp)
+            created.append({"waste_type": bin_item.waste_type, "telemetry_id": telemetry.id})
+        machine.last_updated_at = timestamp
+        machine_update_fields = ["last_updated_at"]
+        if auto_online:
+            machine_update_fields.extend(["status", "telemetry_paused_at"])
+        machine.save(update_fields=machine_update_fields)
+    return JsonResponse({
+        "machine_id": machine.id,
+        "recorded_at": timestamp.isoformat(),
+        "readings": created,
+        "auto_online": auto_online,
+    }, status=201)
