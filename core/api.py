@@ -49,11 +49,16 @@ def decimal_value(value, field, minimum=None, maximum=None):
 
 
 def can_operate_machine(user, machine):
-    """Only the explicitly assigned caretaker may mutate a machine."""
-    return bool(machine.caretaker_id and machine.caretaker_id == user.id)
+    """Any explicitly assigned caretaker may mutate a machine."""
+    return any(caretaker.id == user.id for caretaker in machine.caretakers.all())
 
 
 def serialize_machine(machine, user=None):
+    caretakers = sorted(
+        machine.caretakers.all(),
+        key=lambda caretaker: (caretaker.name.casefold(), caretaker.id),
+    )
+    primary_caretaker = caretakers[0] if caretakers else None
     return {
         "id": machine.id,
         "code": machine.code,
@@ -63,10 +68,15 @@ def serialize_machine(machine, user=None):
         "latitude": str(machine.latitude) if machine.latitude is not None else None,
         "longitude": str(machine.longitude) if machine.longitude is not None else None,
         "status": machine.status,
+        # Keep the singular field temporarily for older app versions.
         "caretaker": ({
-            "id": machine.caretaker.id,
-            "name": machine.caretaker.name,
-        } if machine.caretaker else None),
+            "id": primary_caretaker.id,
+            "name": primary_caretaker.name,
+        } if primary_caretaker else None),
+        "caretakers": [
+            {"id": caretaker.id, "name": caretaker.name}
+            for caretaker in caretakers
+        ],
         "can_operate": can_operate_machine(user, machine) if user else False,
         "telemetry_paused_at": (
             machine.telemetry_paused_at.isoformat()
@@ -130,8 +140,8 @@ def token_required(view):
 
 
 def visible_machines(user):
-    machines = Machine.objects.select_related("organization", "caretaker").prefetch_related(
-        "bins",
+    machines = Machine.objects.select_related("organization").prefetch_related(
+        "bins", "caretakers",
     ).order_by("-created_at", "-id")
     if user.role == User.Role.SUPER_ADMIN:
         return machines

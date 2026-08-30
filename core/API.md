@@ -13,15 +13,15 @@ Base URL: `/api/v1/`. Flutter endpoints use `Authorization: Bearer <access_token
 | `POST /me/push-devices/unregister/` | Disable the supplied FCM `token` for the signed-in user. |
 | `PATCH /me/profile/` | Update `name`, `phone`. |
 | `POST /me/change-password/` | Send `old_password`, `new_password`. |
-| `GET /machines/` | Super admins see every machine; other users see every machine in their organization. Each result includes the optional `caretaker` and a `can_operate` flag. |
+| `GET /machines/` | Super admins see every machine; other users see every machine in their organization. Each result includes `caretakers` (multiple users), the legacy first `caretaker`, and a `can_operate` flag. |
 | `GET /machines/{id}/` | One machine. |
-| `PATCH /machines/{id}/status/` | Persist machine status with boolean `is_on`; caretaker only. |
+| `PATCH /machines/{id}/status/` | Persist machine status with boolean `is_on`; any assigned caretaker only. |
 | `GET /machines/{id}/telemetry/?limit=60` | Recent history, maximum 500 readings. |
 | `GET /collections/?mine=1` | Collection history; `mine=1` limits results to records collected by the signed-in user. |
-| `POST /collections/create/` | Save a manual collection: `machine_id`, `waste_type`, `weight_kg`, optional `label_code`; caretaker only. The machine must be `Offline`; otherwise the API returns `409`. |
+| `POST /collections/create/` | Save a manual collection: `machine_id`, `waste_type`, `weight_kg`, optional `label_code`; any assigned caretaker only. The machine must be `Offline`; otherwise the API returns `409`. |
 | `GET /issues/?mine=1` | Issues for visible machines; `mine=1` limits results to reports created by the signed-in user. |
 | `GET /issue-categories/` | Active issue categories for the report form. |
-| `POST /issues/create/` | Create an issue: `machine_id`, `category_id`, `description`; caretaker only. |
+| `POST /issues/create/` | Create an issue: `machine_id`, `category_id`, `description`; any assigned caretaker only. |
 | `GET /notifications/` | Signed-in user's alerts. |
 | `POST /notifications/{id}/read/` | Mark one alert as read. |
 | `POST /notifications/{id}/acknowledge/` | Accept an actionable full-bin alert. The first acceptance wins and other active users in the organization receive a notification naming the accepting user. |

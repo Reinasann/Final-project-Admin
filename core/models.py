@@ -99,11 +99,9 @@ class Machine(models.Model):
     device = models.OneToOneField(
         MachineInformation, on_delete=models.PROTECT, related_name="machine", null=True, blank=True
     )
-    caretaker = models.ForeignKey(
+    caretakers = models.ManyToManyField(
         User,
-        on_delete=models.SET_NULL,
         related_name="assigned_machines",
-        null=True,
         blank=True,
     )
     code = models.CharField(max_length=20, unique=True)

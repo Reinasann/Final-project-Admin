@@ -456,8 +456,9 @@ class ApiTests(TestCase):
         self.device.save()
         self.machine = Machine.objects.create(
             id="M001", organization=self.organization, device=self.device,
-            caretaker=self.user, code="SR-001", name="Station A", location="Cafeteria",
+            code="SR-001", name="Station A", location="Cafeteria",
         )
+        self.machine.caretakers.add(self.user)
         for waste_type in MachineBin.WasteType.values:
             MachineBin.objects.create(machine=self.machine, waste_type=waste_type)
 
@@ -899,6 +900,10 @@ class ApiTests(TestCase):
             detail_response.json()["caretaker"],
             {"id": self.user.id, "name": self.user.name},
         )
+        self.assertEqual(
+            detail_response.json()["caretakers"],
+            [{"id": self.user.id, "name": self.user.name}],
+        )
 
         status_response = self.client.patch(
             f"/api/v1/machines/{self.machine.id}/status/",
@@ -960,8 +965,8 @@ class ApiTests(TestCase):
         self.machine.refresh_from_db()
         self.assertEqual(self.machine.status, Machine.Status.OFFLINE)
 
-        self.machine.caretaker = organization_admin
-        self.machine.save(update_fields=["caretaker"])
+        self.machine.caretakers.add(organization_admin)
+        self.assertEqual(self.machine.caretakers.count(), 2)
         response = self.client.post(
             "/machines/toggle/",
             data={"id": self.machine.id},
@@ -1003,6 +1008,8 @@ class ApiTests(TestCase):
         self.assertContains(dashboard_response, 'id="chart-end-date-picker" type="date"')
         self.assertContains(dashboard_response, 'aria-label="เปิดปฏิทินวันที่เริ่มต้น"')
         self.assertContains(dashboard_response, 'id="pie-tooltip"')
+        self.assertContains(dashboard_response, 'background-color:#111827')
+        self.assertContains(dashboard_response, 'const safeLeft=')
         self.assertContains(dashboard_response, 'segment.percentage.toFixed(1)')
         self.assertEqual(len(dashboard_response.context["chart_payload"]["dates"]), 366)
         self.assertEqual(
@@ -1151,6 +1158,17 @@ class ApiTests(TestCase):
         self.assertContains(response, "ESP32-SR-005")
         self.assertContains(response, "device-secret-005")
         self.assertContains(response, "พร้อมเลือกตอนเพิ่มเครื่อง")
+        self.assertContains(response, 'name="caretaker_ids"')
+        self.assertContains(response, 'id="add-caretakers" multiple')
+
+        second_caretaker = User.objects.create(
+            id="U005",
+            organization=self.organization,
+            name="Second Caretaker",
+            email="second-caretaker@recycle.com",
+            role=User.Role.COLLECTOR,
+            status=User.Status.ACTIVE,
+        )
 
         response = self.client.post("/machines/add/", data={
             "code": "SHOULD-BE-IGNORED",
@@ -1158,13 +1176,16 @@ class ApiTests(TestCase):
             "device_serial": "ESP32-SR-005",
             "name": "Station 5",
             "location": "Building 5",
-            "caretaker_id": self.user.id,
+            "caretaker_ids": [self.user.id, second_caretaker.id],
         })
         self.assertRedirects(response, "/machines/")
         machine = Machine.objects.get(code="SR-005")
         self.assertEqual(machine.name, "Station 5")
         self.assertEqual(machine.device_id, "ESP32-SR-005")
-        self.assertEqual(machine.caretaker, self.user)
+        self.assertSetEqual(
+            set(machine.caretakers.all()),
+            {self.user, second_caretaker},
+        )
         self.assertEqual(machine.bins.count(), 3)
         self.assertIsNotNone(machine.installed_on)
         prepared_device.refresh_from_db()

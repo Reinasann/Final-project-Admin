@@ -755,6 +755,24 @@ def device_delete(request):
     return redirect('/machines/?devices=1')
 
 
+def valid_machine_caretakers(organization, caretaker_ids):
+    selected_ids = list(dict.fromkeys(
+        caretaker_id.strip()
+        for caretaker_id in caretaker_ids
+        if caretaker_id.strip()
+    ))
+    if not selected_ids:
+        return [], True
+    caretakers = list(
+        User.objects.filter(
+            pk__in=selected_ids,
+            organization=organization,
+            status=User.Status.ACTIVE,
+        ).exclude(role=User.Role.SUPER_ADMIN)
+    )
+    return caretakers, len(caretakers) == len(selected_ids)
+
+
 @login_required
 @require_POST
 def machine_add(request):
@@ -766,21 +784,15 @@ def machine_add(request):
     device_serial = request.POST.get('device_serial', '').strip().upper()
     name = request.POST.get('name', '').strip()
     location = request.POST.get('location', '').strip()
-    caretaker_id = request.POST.get('caretaker_id', '').strip()
+    caretaker_ids = request.POST.getlist('caretaker_ids')
 
     organization = Organization.objects.filter(pk=organization_id).first()
-    caretaker = None
-    if organization and caretaker_id:
-        caretaker = User.objects.filter(
-            pk=caretaker_id,
-            organization=organization,
-            status=User.Status.ACTIVE,
-        ).exclude(role=User.Role.SUPER_ADMIN).first()
+    caretakers, caretakers_valid = valid_machine_caretakers(organization, caretaker_ids)
     if not name or not organization:
         request.session['toast'] = {
             'type': 'error', 'title': 'ข้อมูลไม่ครบ', 'message': 'กรุณาระบุชื่อเครื่องและหน่วยงาน',
         }
-    elif caretaker_id and caretaker is None:
+    elif not caretakers_valid:
         request.session['toast'] = {
             'type': 'error',
             'title': 'ผู้ดูแลเครื่องไม่ถูกต้อง',
@@ -813,11 +825,11 @@ def machine_add(request):
                     location=location,
                     organization=organization,
                     device=device,
-                    caretaker=caretaker,
                     status=Machine.Status.OFFLINE,
                     installed_on=timezone.localdate(),
                     last_updated_at=timezone.now(),
                 )
+                machine.caretakers.set(caretakers)
                 MachineBin.objects.bulk_create([
                     MachineBin(machine=machine, waste_type=waste_type)
                     for waste_type in MachineBin.WasteType.values
@@ -851,23 +863,20 @@ def machine_edit(request):
                 }
                 return redirect('machines')
 
-        caretaker = machine.caretaker
-        if 'caretaker_id' in request.POST:
-            caretaker_id = request.POST.get('caretaker_id', '').strip()
-            caretaker = None
-            if caretaker_id:
-                caretaker = User.objects.filter(
-                    pk=caretaker_id,
-                    organization=target_organization,
-                    status=User.Status.ACTIVE,
-                ).exclude(role=User.Role.SUPER_ADMIN).first()
-                if caretaker is None:
-                    request.session['toast'] = {
-                        'type': 'error',
-                        'title': 'ผู้ดูแลเครื่องไม่ถูกต้อง',
-                        'message': 'กรุณาเลือกผู้ดูแลเครื่องที่กำลังใช้งานและอยู่ในหน่วยงานเดียวกับเครื่อง',
-                    }
-                    return redirect('machines')
+        caretakers_submitted = 'caretakers_submitted' in request.POST
+        caretakers = None
+        if caretakers_submitted:
+            caretakers, caretakers_valid = valid_machine_caretakers(
+                target_organization,
+                request.POST.getlist('caretaker_ids'),
+            )
+            if not caretakers_valid:
+                request.session['toast'] = {
+                    'type': 'error',
+                    'title': 'ผู้ดูแลเครื่องไม่ถูกต้อง',
+                    'message': 'กรุณาเลือกผู้ดูแลเครื่องที่กำลังใช้งานและอยู่ในหน่วยงานเดียวกับเครื่อง',
+                }
+                return redirect('machines')
 
         coordinates_submitted = 'latitude' in request.POST or 'longitude' in request.POST
         try:
@@ -885,7 +894,6 @@ def machine_edit(request):
 
         machine.name = request.POST.get('name', machine.name).strip() or machine.name
         machine.location = request.POST.get('location', machine.location).strip()
-        machine.caretaker = caretaker
         machine.last_updated_at = timezone.now()
         if coordinates_submitted:
             machine.latitude = latitude
@@ -919,6 +927,8 @@ def machine_edit(request):
                     machine_saved = True
         if not machine_saved:
             machine.save()
+        if caretakers_submitted:
+            machine.caretakers.set(caretakers)
     request.session['toast'] = {'type': 'success', 'title': 'บันทึกแล้ว', 'message': 'แก้ไขข้อมูลเครื่องเรียบร้อยแล้ว'}
     return redirect('machines')
 
@@ -931,7 +941,7 @@ def machine_toggle(request):
     with transaction.atomic():
         machine = Machine.objects.select_for_update().filter(pk=mid).first()
         if machine and (allowed_orgs is None or machine.organization_id in allowed_orgs):
-            if machine.caretaker_id != request.session.get('user_id'):
+            if not machine.caretakers.filter(pk=request.session.get('user_id')).exists():
                 request.session['toast'] = {
                     'type': 'error',
                     'title': 'โหมดดูอย่างเดียว',

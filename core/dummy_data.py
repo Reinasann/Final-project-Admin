@@ -38,11 +38,15 @@ def get_organizations(session):
 
 def get_machines(session):
     result = []
-    rows = Machine.objects.select_related('device', 'caretaker').prefetch_related('bins').order_by(
+    rows = Machine.objects.select_related('device').prefetch_related('bins', 'caretakers').order_by(
         '-created_at', '-id',
     )
     for row in rows:
         bins = {bin.waste_type: bin for bin in row.bins.all()}
+        caretakers = sorted(
+            row.caretakers.all(),
+            key=lambda caretaker: (caretaker.name.casefold(), caretaker.id),
+        )
         level = lambda waste_type: float(bins[waste_type].current_level_percent) if waste_type in bins else 0
         result.append({'id': row.id, 'code': row.code, 'name': row.name, 'location': row.location,
                        'status': row.status, 'plastic': level('plastic'), 'glass': level('glass'),
@@ -51,8 +55,9 @@ def get_machines(session):
                        'longitude': str(row.longitude) if row.longitude is not None else '',
                        'serial_number': row.device_id or '',
                        'device_model': row.device.model if row.device else '',
-                       'caretaker_id': row.caretaker_id or '',
-                       'caretaker_name': row.caretaker.name if row.caretaker else '',
+                       'caretaker_ids': [caretaker.id for caretaker in caretakers],
+                       'caretaker_ids_csv': ','.join(caretaker.id for caretaker in caretakers),
+                       'caretaker_names': ', '.join(caretaker.name for caretaker in caretakers),
                        'lastUpdate': display_datetime(row.last_updated_at),
                        'installDate': display_date(row.installed_on),
                        'organization_id': row.organization_id})
