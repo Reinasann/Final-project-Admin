@@ -20,7 +20,7 @@ from .dummy_data import (
 from . import api
 from .models import (
     CollectionHistory, IssueCategory, IssueReport, Machine, MachineBin,
-    MachineInformation, Organization, User,
+    MachineCommand, MachineInformation, Organization, User,
 )
 
 # JSON API handlers are re-exported here to preserve the existing URL module shape.
@@ -46,6 +46,8 @@ api_notifications = api.notifications
 api_mark_notification_read = api.mark_notification_read
 api_acknowledge_notification = api.acknowledge_notification
 api_ingest_telemetry = api.ingest_telemetry
+api_poll_device_command = api.poll_device_command
+api_acknowledge_device_command = api.acknowledge_device_command
 
 SYSTEM_ADMIN = 'System admin'
 ORG_ADMIN = 'Admin'
@@ -950,18 +952,24 @@ def machine_toggle(request):
                 return redirect('machines')
             machine.status = Machine.Status.OFFLINE if machine.status == Machine.Status.ONLINE else Machine.Status.ONLINE
             changed_at = timezone.now()
-            machine.telemetry_paused_at = (
-                changed_at if machine.status == Machine.Status.OFFLINE else None
-            )
+            machine.telemetry_paused_at = None
             machine.last_updated_at = changed_at
             machine.save(update_fields=[
                 'status', 'telemetry_paused_at', 'last_updated_at',
             ])
-            action_text = 'เปิดรับข้อมูล' if machine.status == Machine.Status.ONLINE else 'ปิดรับข้อมูล'
+            api.enqueue_machine_command(
+                machine,
+                (
+                    MachineCommand.Command.START
+                    if machine.status == Machine.Status.ONLINE
+                    else MachineCommand.Command.STOP
+                ),
+            )
+            action_text = 'ส่งคำสั่งเปิดเครื่อง' if machine.status == Machine.Status.ONLINE else 'ส่งคำสั่งหยุดเครื่อง'
             request.session['toast'] = {
                 'type': 'success',
-                'title': 'บันทึกแล้ว',
-                'message': f'{action_text}จากเครื่อง {machine.code} แล้ว',
+                'title': 'ส่งคำสั่งแล้ว',
+                'message': f'{action_text} {machine.code} แล้ว รออุปกรณ์ตอบรับคำสั่ง',
             }
     return redirect('machines')
 

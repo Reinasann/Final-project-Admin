@@ -66,6 +66,21 @@ FIREBASE_CREDENTIALS=/etc/secrets/firebase-service-account.json
 
 บน Render ให้อัปโหลดเป็น Secret File ห้าม Commit ไฟล์ credential ลง Git
 
+## ESP32 และ Arduino IDE
+
+เฟิร์มแวร์ส่วนเชื่อม API อยู่ใน `firmware/SmartRecycleController/` และต้องติดตั้ง Library ผ่าน
+Arduino IDE Library Manager ดังนี้
+
+| Library | เวอร์ชันแนะนำ | หน้าที่ |
+| --- | --- | --- |
+| WiFiManager by tzapu | `2.0.17+` | ตั้งค่า Wi-Fi, Serial Number และ Device API Key ผ่าน Captive Portal |
+| ArduinoJson by Benoit Blanchon | `7.x` | สร้างและอ่าน JSON ของ Telemetry/Command |
+| Adafruit PWM Servo Driver Library | รุ่นล่าสุดที่รองรับบอร์ด | ควบคุม PCA9685 |
+| HX711_ADC | รุ่นล่าสุดที่รองรับบอร์ด | อ่านและ Tare Load Cell |
+
+เลือกบอร์ด ESP32 ที่ตรงกับฮาร์ดแวร์จริง และติดตั้ง ESP32 board package ใน Arduino IDE
+ก่อน Compile/Upload
+
 ## ตรวจสอบหลังติดตั้ง
 
 ```powershell
@@ -74,4 +89,3 @@ pip check
 python manage.py check
 python manage.py test
 ```
-

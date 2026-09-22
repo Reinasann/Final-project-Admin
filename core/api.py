@@ -9,6 +9,7 @@ from functools import wraps
 from django.conf import settings
 from django.core.mail import send_mail
 from django.db import IntegrityError, transaction
+from django.db.models import Q
 from django.http import JsonResponse
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
@@ -17,12 +18,13 @@ from django.views.decorators.http import require_GET, require_http_methods, requ
 
 from .models import (
     ApiToken, CollectionHistory, IssueCategory, IssueReport, Machine, MachineBin,
+    MachineCommand,
     Notification, NotificationEvent, NotificationType, PasswordResetCode,
     PushDevice, Telemetry, User,
 )
 from .push import send_notification_deliveries
 
-TELEMETRY_AUTO_RESUME_AFTER = timedelta(minutes=30)
+COMMAND_RETRY_AFTER = timedelta(seconds=30)
 
 
 def response_error(message, status=400):
@@ -51,6 +53,48 @@ def decimal_value(value, field, minimum=None, maximum=None):
 def can_operate_machine(user, machine):
     """Any explicitly assigned caretaker may mutate a machine."""
     return any(caretaker.id == user.id for caretaker in machine.caretakers.all())
+
+
+def serialize_machine_command(command):
+    return {
+        "id": command.id,
+        "type": command.command,
+        "payload": command.payload,
+        "status": command.status,
+        "created_at": command.created_at.isoformat(),
+    }
+
+
+def enqueue_machine_command(machine, command_type, payload=None):
+    """Queue a command for polling; newer power commands supersede older ones."""
+    now = timezone.now()
+    if command_type in {MachineCommand.Command.START, MachineCommand.Command.STOP}:
+        machine.device_commands.filter(
+            command__in=[MachineCommand.Command.START, MachineCommand.Command.STOP],
+            status__in=[
+                MachineCommand.Status.PENDING,
+                MachineCommand.Status.DELIVERED,
+            ],
+        ).update(
+            status=MachineCommand.Status.FAILED,
+            acknowledged_at=now,
+            result_message="Superseded by a newer power command.",
+        )
+    return MachineCommand.objects.create(
+        machine=machine,
+        command=command_type,
+        payload=payload or {},
+    )
+
+
+def authenticated_device_machine(device_id, device_key, *, for_update=False):
+    query = Machine.objects.select_related("device")
+    if for_update:
+        query = query.select_for_update()
+    machine = query.filter(device_id=device_id).first()
+    if machine is None or not machine.device.check_api_key(device_key):
+        return None
+    return machine
 
 
 def serialize_machine(machine, user=None):
@@ -473,12 +517,17 @@ def update_machine_status(request, machine_id):
             return response_error("เฉพาะผู้ดูแลเครื่องเท่านั้นที่สามารถใช้งานเครื่องนี้ได้", 403)
         changed_at = timezone.now()
         machine.status = Machine.Status.ONLINE if payload["is_on"] else Machine.Status.OFFLINE
-        machine.telemetry_paused_at = None if payload["is_on"] else changed_at
+        machine.telemetry_paused_at = None
         machine.last_updated_at = changed_at
         machine.save(update_fields=[
             "status", "telemetry_paused_at", "last_updated_at",
         ])
+        command = enqueue_machine_command(
+            machine,
+            MachineCommand.Command.START if payload["is_on"] else MachineCommand.Command.STOP,
+        )
         response_payload = serialize_machine(machine, request.api_user)
+        response_payload["device_command"] = serialize_machine_command(command)
     return JsonResponse(response_payload)
 
 
@@ -501,6 +550,7 @@ def telemetry_history(request, machine_id):
 @csrf_exempt
 @require_POST
 @token_required
+@transaction.atomic
 def create_collection(request):
     payload = json_body(request)
     if payload is None:
@@ -535,10 +585,16 @@ def create_collection(request):
         bin_item.waste_type,
         bin_item.last_measured_at,
     )
+    command = enqueue_machine_command(
+        machine,
+        MachineCommand.Command.RESET_BIN,
+        {"waste_type": bin_item.waste_type},
+    )
     return JsonResponse({
         "id": item.id,
         "label_code": item.label_code,
         "collected_at": item.collected_at.isoformat(),
+        "device_command": serialize_machine_command(command),
     }, status=201)
 
 
@@ -724,6 +780,96 @@ def acknowledge_notification(request, notification_id):
     })
 
 
+@require_GET
+def poll_device_command(request):
+    """Return one pending command. The ESP32 retries this request every few seconds."""
+    device_id = str(request.GET.get("device_id", "")).strip()
+    device_key = request.headers.get("X-Device-Key", "")
+    with transaction.atomic():
+        machine = authenticated_device_machine(
+            device_id,
+            device_key,
+            for_update=True,
+        )
+        if machine is None:
+            return response_error("Invalid device credentials.", 401)
+
+        now = timezone.now()
+        machine.device.last_seen_at = now
+        machine.device.save(update_fields=["last_seen_at"])
+        retry_before = now - COMMAND_RETRY_AFTER
+        command = machine.device_commands.select_for_update().filter(
+            Q(status=MachineCommand.Status.PENDING)
+            | Q(
+                status=MachineCommand.Status.DELIVERED,
+                delivered_at__lte=retry_before,
+            )
+        ).order_by("created_at", "id").first()
+        if command is None:
+            return JsonResponse({
+                "command": None,
+                "desired_is_on": machine.status == Machine.Status.ONLINE,
+            })
+
+        command.status = MachineCommand.Status.DELIVERED
+        command.delivered_at = now
+        command.attempts += 1
+        command.save(update_fields=["status", "delivered_at", "attempts"])
+        return JsonResponse({
+            "command": serialize_machine_command(command),
+            "desired_is_on": machine.status == Machine.Status.ONLINE,
+        })
+
+
+@csrf_exempt
+@require_POST
+def acknowledge_device_command(request, command_id):
+    """Record execution success/failure reported by the ESP32."""
+    payload = json_body(request)
+    if payload is None or not isinstance(payload.get("success"), bool):
+        return response_error("success must be a boolean.")
+    device_id = str(payload.get("device_id", "")).strip()
+    device_key = request.headers.get("X-Device-Key", "")
+    with transaction.atomic():
+        machine = authenticated_device_machine(
+            device_id,
+            device_key,
+            for_update=True,
+        )
+        if machine is None:
+            return response_error("Invalid device credentials.", 401)
+        command = machine.device_commands.select_for_update().filter(
+            pk=command_id,
+        ).first()
+        if command is None:
+            return response_error("Command not found.", 404)
+        if command.status in {
+            MachineCommand.Status.ACKNOWLEDGED,
+            MachineCommand.Status.FAILED,
+        }:
+            return JsonResponse({
+                "command_id": command.id,
+                "status": command.status,
+                "duplicate": True,
+            })
+
+        command.status = (
+            MachineCommand.Status.ACKNOWLEDGED
+            if payload["success"]
+            else MachineCommand.Status.FAILED
+        )
+        command.acknowledged_at = timezone.now()
+        command.result_message = str(payload.get("message", ""))[:255]
+        command.save(update_fields=[
+            "status", "acknowledged_at", "result_message",
+        ])
+        return JsonResponse({
+            "command_id": command.id,
+            "status": command.status,
+            "duplicate": False,
+        })
+
+
 @csrf_exempt
 @require_POST
 def ingest_telemetry(request):
@@ -750,21 +896,6 @@ def ingest_telemetry(request):
                 "machine_id": machine.id,
                 "accepted": False,
             }, status=409)
-        if machine.status == Machine.Status.OFFLINE and machine.telemetry_paused_at:
-            auto_online_at = machine.telemetry_paused_at + TELEMETRY_AUTO_RESUME_AFTER
-            if received_at < auto_online_at:
-                retry_after_seconds = max(
-                    1,
-                    int((auto_online_at - received_at).total_seconds()) + 1,
-                )
-                return JsonResponse({
-                    "detail": "เครื่องถูกปิดชั่วคราว ระบบยังไม่รับข้อมูลจากอุปกรณ์",
-                    "machine_id": machine.id,
-                    "accepted": False,
-                    "retry_after_seconds": retry_after_seconds,
-                    "auto_online_at": auto_online_at.isoformat(),
-                }, status=409)
-
         timestamp = parse_datetime(str(payload.get("recorded_at", ""))) or received_at
         if timezone.is_naive(timestamp):
             timestamp = timezone.make_aware(timestamp, timezone.get_current_timezone())
@@ -782,11 +913,6 @@ def ingest_telemetry(request):
             except ValueError as error:
                 return response_error(str(error))
             parsed_readings.append((reading, weight, level))
-
-        auto_online = machine.status == Machine.Status.OFFLINE
-        if auto_online:
-            machine.status = Machine.Status.ONLINE
-            machine.telemetry_paused_at = None
 
         created = []
         for reading, weight, level in parsed_readings:
@@ -808,13 +934,10 @@ def ingest_telemetry(request):
                 resolve_full_bin_notification(machine, bin_item.waste_type, timestamp)
             created.append({"waste_type": bin_item.waste_type, "telemetry_id": telemetry.id})
         machine.last_updated_at = timestamp
-        machine_update_fields = ["last_updated_at"]
-        if auto_online:
-            machine_update_fields.extend(["status", "telemetry_paused_at"])
-        machine.save(update_fields=machine_update_fields)
+        machine.save(update_fields=["last_updated_at"])
     return JsonResponse({
         "machine_id": machine.id,
         "recorded_at": timestamp.isoformat(),
         "readings": created,
-        "auto_online": auto_online,
+        "auto_online": False,
     }, status=201)

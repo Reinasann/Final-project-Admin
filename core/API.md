@@ -15,10 +15,10 @@ Base URL: `/api/v1/`. Flutter endpoints use `Authorization: Bearer <access_token
 | `POST /me/change-password/` | Send `old_password`, `new_password`. |
 | `GET /machines/` | Super admins see every machine; other users see every machine in their organization. Each result includes `caretakers` (multiple users), the legacy first `caretaker`, and a `can_operate` flag. |
 | `GET /machines/{id}/` | One machine. |
-| `PATCH /machines/{id}/status/` | Persist machine status with boolean `is_on`; any assigned caretaker only. |
+| `PATCH /machines/{id}/status/` | Persist desired machine status with boolean `is_on` and queue a physical `START`/`STOP` command; any assigned caretaker only. |
 | `GET /machines/{id}/telemetry/?limit=60` | Recent history, maximum 500 readings. |
 | `GET /collections/?mine=1` | Collection history; `mine=1` limits results to records collected by the signed-in user. |
-| `POST /collections/create/` | Save a manual collection: `machine_id`, `waste_type`, `weight_kg`, optional `label_code`; any assigned caretaker only. The machine must be `Offline`; otherwise the API returns `409`. |
+| `POST /collections/create/` | Save a manual collection: `machine_id`, `waste_type`, `weight_kg`, optional `label_code`; any assigned caretaker only. The machine must be `Offline`; otherwise the API returns `409`. A successful collection queues `RESET_BIN` for that bin. |
 | `GET /issues/?mine=1` | Issues for visible machines; `mine=1` limits results to reports created by the signed-in user. |
 | `GET /issue-categories/` | Active issue categories for the report form. |
 | `POST /issues/create/` | Create an issue: `machine_id`, `category_id`, `description`; any assigned caretaker only. |
@@ -35,14 +35,10 @@ the response includes `debug_code` while `DEBUG=True`. For deployment, configure
 
 `POST /iot/telemetry/` uses `X-Device-Key` instead of a user token. The ESP32 sends the values it already calculated; the server validates and records them without deriving weight or level.
 
-Turning a machine off in the app or admin system pauses telemetry ingestion for
-30 minutes. Valid device submissions during the pause update only the device's
-`last_seen_at` and return HTTP `409` with `accepted: false`,
-`retry_after_seconds`, and `auto_online_at`; telemetry and current bin values are
-not changed. After the pause expires, the next valid submission automatically
-changes the machine to `Online` and is recorded with `auto_online: true`. A new
-or otherwise `Offline` machine without a manual pause also becomes `Online` on
-its first valid submission. Machines in `Maintenance` never auto-resume.
+The ESP32 sends telemetry only while its sorting system is running. A late or
+in-flight telemetry request may still be recorded after `STOP`, but telemetry
+never changes the desired machine status. Machines in `Maintenance` reject
+telemetry with HTTP `409`.
 
 When a reported level reaches the bin's `full_threshold_percent`, the server
 creates one active alert and delivers it to every active user in the machine's
@@ -63,3 +59,27 @@ reaches it again.
 ```
 
 Create a `MachineInformation` row for each ESP32, set its API key with `device.set_api_key("secret")`, then attach it to its `Machine`. Store only the hash in SQLite. `Telemetry` is immutable historical data; `MachineBin.current_*` is the quick, latest-state read model.
+
+## ESP32 commands
+
+The server uses a durable polling queue because a deployed ESP32 is normally
+behind a router and cannot receive an inbound request from Render. Both command
+endpoints use the same `X-Device-Key` header as telemetry.
+
+1. Poll `GET /iot/commands/?device_id=ESP32-SR-001` every two seconds.
+2. Execute the returned `command` (`START`, `STOP`, or `RESET_BIN`).
+3. Acknowledge it with `POST /iot/commands/{id}/ack/`.
+
+If a delivered command is not acknowledged within 30 seconds, it is returned
+again. Command handlers on the ESP32 must therefore be idempotent.
+
+```json
+{
+  "device_id": "ESP32-SR-001",
+  "success": true,
+  "message": "Command completed."
+}
+```
+
+The poll response also contains `desired_is_on`. This lets an ESP32 restore the
+correct physical state after a restart even when there is no pending command.

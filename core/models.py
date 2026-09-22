@@ -119,6 +119,48 @@ class Machine(models.Model):
         return f"{self.code} - {self.name}"
 
 
+class MachineCommand(models.Model):
+    """Durable commands polled by an ESP32 over its outbound HTTPS connection."""
+
+    class Command(models.TextChoices):
+        START = "START", "Start machine"
+        STOP = "STOP", "Stop machine"
+        RESET_BIN = "RESET_BIN", "Reset bin weight"
+
+    class Status(models.TextChoices):
+        PENDING = "PENDING", "Pending"
+        DELIVERED = "DELIVERED", "Delivered"
+        ACKNOWLEDGED = "ACKNOWLEDGED", "Acknowledged"
+        FAILED = "FAILED", "Failed"
+
+    machine = models.ForeignKey(
+        Machine,
+        on_delete=models.CASCADE,
+        related_name="device_commands",
+    )
+    command = models.CharField(max_length=20, choices=Command.choices)
+    payload = models.JSONField(default=dict, blank=True)
+    status = models.CharField(
+        max_length=20,
+        choices=Status.choices,
+        default=Status.PENDING,
+    )
+    attempts = models.PositiveIntegerField(default=0)
+    created_at = models.DateTimeField(auto_now_add=True)
+    delivered_at = models.DateTimeField(null=True, blank=True)
+    acknowledged_at = models.DateTimeField(null=True, blank=True)
+    result_message = models.CharField(max_length=255, blank=True)
+
+    class Meta:
+        ordering = ["created_at", "id"]
+        indexes = [
+            models.Index(
+                fields=["machine", "status", "created_at"],
+                name="core_cmd_machine_status_idx",
+            ),
+        ]
+
+
 class MachineBin(models.Model):
     class WasteType(models.TextChoices):
         PLASTIC = "plastic", "Plastic/PET"

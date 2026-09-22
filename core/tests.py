@@ -9,7 +9,7 @@ from django.utils import timezone
 from .dummy_data import get_collection_history, get_issues
 from .models import (
     ApiToken, CollectionHistory, IssueCategory, IssueReport, Machine, MachineBin,
-    MachineInformation, Notification, NotificationEvent, Organization,
+    MachineCommand, MachineInformation, Notification, NotificationEvent, Organization,
     PasswordResetCode, PushDevice, Telemetry, User,
 )
 from .templatetags.core_extras import ddmmyy
@@ -982,7 +982,11 @@ class ApiTests(TestCase):
         self.assertRedirects(response, "/machines/")
         self.machine.refresh_from_db()
         self.assertEqual(self.machine.status, Machine.Status.OFFLINE)
-        self.assertIsNotNone(self.machine.telemetry_paused_at)
+        self.assertIsNone(self.machine.telemetry_paused_at)
+        self.assertEqual(
+            self.machine.device_commands.latest("id").command,
+            MachineCommand.Command.STOP,
+        )
 
     def test_login_page_contains_skeleton_loading(self):
         response = self.client.get("/")
@@ -1129,6 +1133,53 @@ class ApiTests(TestCase):
         )
         self.assertTrue(response.json()["results"][0]["can_operate"])
 
+    def test_esp32_polls_and_acknowledges_hardware_commands(self):
+        command = MachineCommand.objects.create(
+            machine=self.machine,
+            command=MachineCommand.Command.START,
+        )
+
+        poll_response = self.client.get(
+            "/api/v1/iot/commands/?device_id=ESP32-SR-001",
+            HTTP_X_DEVICE_KEY="device-secret",
+        )
+        self.assertEqual(poll_response.status_code, 200)
+        self.assertEqual(poll_response.json()["command"]["id"], command.id)
+        self.assertEqual(
+            poll_response.json()["command"]["type"],
+            MachineCommand.Command.START,
+        )
+        command.refresh_from_db()
+        self.assertEqual(command.status, MachineCommand.Status.DELIVERED)
+        self.assertEqual(command.attempts, 1)
+
+        ack_response = self.client.post(
+            f"/api/v1/iot/commands/{command.id}/ack/",
+            data=json.dumps({
+                "device_id": "ESP32-SR-001",
+                "success": True,
+                "message": "Machine started.",
+            }),
+            content_type="application/json",
+            HTTP_X_DEVICE_KEY="device-secret",
+        )
+        self.assertEqual(ack_response.status_code, 200)
+        self.assertEqual(
+            ack_response.json()["status"],
+            MachineCommand.Status.ACKNOWLEDGED,
+        )
+        self.assertIsNone(self.client.get(
+            "/api/v1/iot/commands/?device_id=ESP32-SR-001",
+            HTTP_X_DEVICE_KEY="device-secret",
+        ).json()["command"])
+
+    def test_device_command_rejects_invalid_credentials(self):
+        response = self.client.get(
+            "/api/v1/iot/commands/?device_id=ESP32-SR-001",
+            HTTP_X_DEVICE_KEY="wrong-key",
+        )
+        self.assertEqual(response.status_code, 401)
+
     def test_super_admin_prepares_serial_before_adding_machine(self):
         login_response = self.client.post("/", data={
             "email": self.admin.email,
@@ -1217,9 +1268,9 @@ class ApiTests(TestCase):
             HTTP_X_DEVICE_KEY="device-secret-005",
         )
         self.assertEqual(telemetry_response.status_code, 201)
-        self.assertTrue(telemetry_response.json()["auto_online"])
+        self.assertFalse(telemetry_response.json()["auto_online"])
         machine.refresh_from_db()
-        self.assertEqual(machine.status, Machine.Status.ONLINE)
+        self.assertEqual(machine.status, Machine.Status.OFFLINE)
 
     def test_admin_can_choose_and_save_machine_coordinates(self):
         login_response = self.client.post("/", data={
@@ -1324,6 +1375,14 @@ class ApiTests(TestCase):
         self.assertEqual(response.status_code, 201)
         self.assertEqual(response.json()["label_code"], "LBL-M001-TEST")
         self.assertEqual(
+            response.json()["device_command"]["type"],
+            MachineCommand.Command.RESET_BIN,
+        )
+        self.assertEqual(
+            MachineCommand.objects.get().payload,
+            {"waste_type": MachineBin.WasteType.PLASTIC},
+        )
+        self.assertEqual(
             CollectionHistory.objects.get(collector=self.user).label_code,
             "LBL-M001-TEST",
         )
@@ -1357,16 +1416,16 @@ class ApiTests(TestCase):
             HTTP_X_DEVICE_KEY="device-secret",
         )
         self.assertEqual(response.status_code, 201)
-        self.assertTrue(response.json()["auto_online"])
+        self.assertFalse(response.json()["auto_online"])
         self.assertEqual(Telemetry.objects.count(), 3)
         self.machine.refresh_from_db()
-        self.assertEqual(self.machine.status, Machine.Status.ONLINE)
+        self.assertEqual(self.machine.status, Machine.Status.OFFLINE)
         self.assertIsNone(self.machine.telemetry_paused_at)
         plastic = MachineBin.objects.get(machine=self.machine, waste_type="plastic")
         self.assertEqual(str(plastic.current_weight_kg), "4.25")
         self.assertEqual(str(plastic.current_level_percent), "36.50")
 
-    def test_manual_pause_rejects_telemetry_then_auto_resumes_after_30_minutes(self):
+    def test_stop_queues_hardware_command_and_does_not_auto_start_from_telemetry(self):
         token = self.login_token()
         auth = {"HTTP_AUTHORIZATION": f"Bearer {token}"}
         pause_response = self.client.patch(
@@ -1376,7 +1435,11 @@ class ApiTests(TestCase):
             **auth,
         )
         self.assertEqual(pause_response.status_code, 200)
-        self.assertIsNotNone(pause_response.json()["telemetry_paused_at"])
+        self.assertIsNone(pause_response.json()["telemetry_paused_at"])
+        self.assertEqual(
+            pause_response.json()["device_command"]["type"],
+            MachineCommand.Command.STOP,
+        )
         payload = {
             "device_id": "ESP32-SR-001",
             "recorded_at": "2026-08-29T10:30:00+07:00",
@@ -1387,34 +1450,20 @@ class ApiTests(TestCase):
             ],
         }
 
-        rejected_response = self.client.post(
+        telemetry_response = self.client.post(
             "/api/v1/iot/telemetry/",
             data=json.dumps(payload),
             content_type="application/json",
             HTTP_X_DEVICE_KEY="device-secret",
         )
-        self.assertEqual(rejected_response.status_code, 409)
-        self.assertFalse(rejected_response.json()["accepted"])
-        self.assertGreater(rejected_response.json()["retry_after_seconds"], 0)
-        self.assertEqual(Telemetry.objects.count(), 0)
+        self.assertEqual(telemetry_response.status_code, 201)
+        self.assertFalse(telemetry_response.json()["auto_online"])
+        self.assertEqual(Telemetry.objects.count(), 3)
         self.device.refresh_from_db()
         self.assertIsNotNone(self.device.last_seen_at)
-
-        Machine.objects.filter(pk=self.machine.pk).update(
-            telemetry_paused_at=timezone.now() - timedelta(minutes=31),
-        )
-        resumed_response = self.client.post(
-            "/api/v1/iot/telemetry/",
-            data=json.dumps(payload),
-            content_type="application/json",
-            HTTP_X_DEVICE_KEY="device-secret",
-        )
-        self.assertEqual(resumed_response.status_code, 201)
-        self.assertTrue(resumed_response.json()["auto_online"])
         self.machine.refresh_from_db()
-        self.assertEqual(self.machine.status, Machine.Status.ONLINE)
+        self.assertEqual(self.machine.status, Machine.Status.OFFLINE)
         self.assertIsNone(self.machine.telemetry_paused_at)
-        self.assertEqual(Telemetry.objects.count(), 3)
 
     def test_full_bin_alert_is_broadcast_and_first_acknowledgement_wins(self):
         colleague = User(

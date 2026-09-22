@@ -36,6 +36,9 @@ recycleadmin/
 │   ├── API.md                 รายละเอียด API
 │   └── tests.py               ชุดทดสอบ
 ├── assets/                    Tailwind CSS input
+├── firmware/SmartRecycleController/
+│   ├── SmartRecycleCloud.ino  WiFiManager, Telemetry และคิวคำสั่ง ESP32
+│   └── README.md              วิธีรวมกับโค้ดเครื่องคัดแยกเดิม
 ├── DEPENDENCIES.md            รายการโปรแกรมและส่วนเสริม
 ├── DEPLOYMENT.md              ขั้นตอน Deploy บน Render
 ├── requirements.txt           Python packages
@@ -140,12 +143,17 @@ ESP32 ใช้ endpoint:
 
 ```text
 POST /api/v1/iot/telemetry/
+GET  /api/v1/iot/commands/?device_id=<Serial Number>
+POST /api/v1/iot/commands/<Command ID>/ack/
 Content-Type: application/json
 X-Device-Key: <API Key ของ Serial Number นั้น>
 ```
 
 `device_id` ใน JSON ต้องตรงกับ Serial Number ที่เตรียมไว้ และ `X-Device-Key` ต้องตรงกับ
 API Key ของอุปกรณ์ ไม่ควรฝัง API Key จริงใน Git หรือเอกสารสาธารณะ
+
+โค้ด WiFiManager และขั้นตอนรวมเข้ากับสเก็ตช์เดิมอยู่ที่
+[firmware/SmartRecycleController/README.md](firmware/SmartRecycleController/README.md)
 
 ## ทดสอบ
 
