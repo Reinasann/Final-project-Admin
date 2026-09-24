@@ -193,6 +193,11 @@
 lucide.createIcons();
 
 const defaultMapCenter = [13.7563, 100.5018];
+const baseMapTileUrl = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}';
+const baseMapTileOptions = {
+  maxZoom: 19,
+  attribution: 'Tiles &copy; Esri &mdash; Esri, HERE, Garmin, FAO, NOAA, USGS, OpenStreetMap contributors, and the GIS User Community',
+};
 const overviewMachines = JSON.parse(document.getElementById('machine-overview-data')?.textContent || '[]');
 const overviewMarkers = new Map();
 let overviewMap = null;
@@ -237,10 +242,7 @@ function overviewStatusLabel(status) {
 function ensureOverviewMap() {
   if (overviewMap || !window.L) return overviewMap;
   overviewMap = L.map('machine-overview-map', {scrollWheelZoom: false}).setView(defaultMapCenter, 6);
-  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    maxZoom: 19,
-    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
-  }).addTo(overviewMap);
+  L.tileLayer(baseMapTileUrl, baseMapTileOptions).addTo(overviewMap);
   overviewLayer = L.layerGroup().addTo(overviewMap);
   return overviewMap;
 }
@@ -429,10 +431,7 @@ function coordinateNumber(value) {
 function ensureMachineMap() {
   if (machineMap || !window.L) return machineMap;
   machineMap = L.map('machine-map').setView(defaultMapCenter, 6);
-  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    maxZoom: 19,
-    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors',
-  }).addTo(machineMap);
+  L.tileLayer(baseMapTileUrl, baseMapTileOptions).addTo(machineMap);
   machineMap.on('click', event => {
     if (!isEditMode) return;
     setCoordinateInputs(event.latlng.lat, event.latlng.lng, true);

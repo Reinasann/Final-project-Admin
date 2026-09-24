@@ -1287,6 +1287,11 @@ class ApiTests(TestCase):
         self.assertContains(response, 'onclick="openOverviewMapModal()"')
         self.assertContains(response, 'id="overview-map-modal"')
         self.assertContains(response, 'aria-label="ปิดแผนที่"')
+        self.assertContains(
+            response,
+            "server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map",
+        )
+        self.assertNotContains(response, "tile.openstreetmap.org")
         self.assertEqual(response.context["machine_map_data"][0]["id"], self.machine.id)
         self.assertIsNone(response.context["machine_map_data"][0]["latitude"])
 
