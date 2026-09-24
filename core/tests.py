@@ -940,7 +940,7 @@ class ApiTests(TestCase):
         self.assertEqual(issue_response.status_code, 403)
         self.assertFalse(IssueReport.objects.filter(reporter=viewer).exists())
 
-    def test_admin_machine_toggle_is_limited_to_assigned_caretaker(self):
+    def test_organization_admin_can_toggle_machine_without_caretaker_assignment(self):
         organization_admin = User(
             id="A-CARE",
             organization=self.organization,
@@ -963,17 +963,11 @@ class ApiTests(TestCase):
         )
         self.assertRedirects(response, "/machines/")
         self.machine.refresh_from_db()
-        self.assertEqual(self.machine.status, Machine.Status.OFFLINE)
-
-        self.machine.caretakers.add(organization_admin)
-        self.assertEqual(self.machine.caretakers.count(), 2)
-        response = self.client.post(
-            "/machines/toggle/",
-            data={"id": self.machine.id},
-        )
-        self.assertRedirects(response, "/machines/")
-        self.machine.refresh_from_db()
         self.assertEqual(self.machine.status, Machine.Status.ONLINE)
+        self.assertEqual(
+            self.machine.device_commands.latest("id").command,
+            MachineCommand.Command.START,
+        )
 
         response = self.client.post(
             "/machines/toggle/",
@@ -986,6 +980,36 @@ class ApiTests(TestCase):
         self.assertEqual(
             self.machine.device_commands.latest("id").command,
             MachineCommand.Command.STOP,
+        )
+
+    def test_system_admin_can_toggle_machine_and_sees_power_command_modal(self):
+        login_response = self.client.post("/", data={
+            "email": self.admin.email,
+            "password": "admin-password",
+        })
+        self.assertRedirects(login_response, "/dashboard/")
+
+        page_response = self.client.get("/machines/")
+        self.assertContains(page_response, "ยืนยันการเปิดเครื่อง")
+        self.assertContains(
+            page_response,
+            f"ต้องการส่งคำสั่งเปิดเครื่อง {self.machine.code} หรือไม่?",
+        )
+        self.assertNotContains(
+            page_response,
+            "เฉพาะผู้ดูแลเครื่องเท่านั้นที่เปิดหรือปิดการรับข้อมูลได้",
+        )
+
+        toggle_response = self.client.post(
+            "/machines/toggle/",
+            data={"id": self.machine.id},
+        )
+        self.assertRedirects(toggle_response, "/machines/")
+        self.machine.refresh_from_db()
+        self.assertEqual(self.machine.status, Machine.Status.ONLINE)
+        self.assertEqual(
+            self.machine.device_commands.latest("id").command,
+            MachineCommand.Command.START,
         )
 
     def test_login_page_contains_skeleton_loading(self):

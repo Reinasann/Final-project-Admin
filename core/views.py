@@ -943,13 +943,6 @@ def machine_toggle(request):
     with transaction.atomic():
         machine = Machine.objects.select_for_update().filter(pk=mid).first()
         if machine and (allowed_orgs is None or machine.organization_id in allowed_orgs):
-            if not machine.caretakers.filter(pk=request.session.get('user_id')).exists():
-                request.session['toast'] = {
-                    'type': 'error',
-                    'title': 'โหมดดูอย่างเดียว',
-                    'message': 'เฉพาะผู้ดูแลเครื่องเท่านั้นที่สามารถเปิดหรือปิดเครื่องนี้ได้',
-                }
-                return redirect('machines')
             machine.status = Machine.Status.OFFLINE if machine.status == Machine.Status.ONLINE else Machine.Status.ONLINE
             changed_at = timezone.now()
             machine.telemetry_paused_at = None
