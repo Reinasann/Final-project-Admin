@@ -131,6 +131,7 @@ class AdminAjaxNavigationTests(TestCase):
             reporter=self.admin,
             description="Waiting issue",
             status=IssueReport.Status.WAITING,
+            escalated_at=timezone.now(),
         )
         IssueReport.objects.create(
             machine=machine,
@@ -138,6 +139,7 @@ class AdminAjaxNavigationTests(TestCase):
             reporter=self.admin,
             description="Accepted issue",
             status=IssueReport.Status.IN_PROGRESS,
+            escalated_at=timezone.now(),
         )
 
         first = self.client.get("/admin/live-state/")
@@ -208,6 +210,92 @@ class AdminAjaxNavigationTests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["issue_counts"]["waiting"], 1)
+
+
+class SuspensionAndEscalationTests(TestCase):
+    def setUp(self):
+        self.organization = Organization.objects.create(
+            id="org-flow", name="Flow Organization", card_color="#2563eb",
+        )
+        self.super_admin = User(
+            id="SA-FLOW", name="Super Admin", email="super-flow@example.com",
+            role=User.Role.SUPER_ADMIN, status=User.Status.ACTIVE,
+        )
+        self.organization_admin = User(
+            id="OA-FLOW", organization=self.organization, name="Organization Admin",
+            email="org-flow@example.com", role=User.Role.ORGANIZATION_ADMIN,
+            status=User.Status.ACTIVE,
+        )
+        for user in (self.super_admin, self.organization_admin):
+            user.set_password("password123")
+            user.save()
+        self.machine = Machine.objects.create(
+            id="M-FLOW", organization=self.organization, code="SR-FLOW",
+            name="Flow machine", location="Building A", status=Machine.Status.ONLINE,
+        )
+        self.category = IssueCategory.objects.create(name="Flow issue")
+        self.issue = IssueReport.objects.create(
+            machine=self.machine, category=self.category,
+            reporter=self.organization_admin, description="Needs escalation",
+            status=IssueReport.Status.IN_PROGRESS,
+        )
+
+    def login(self, user):
+        response = self.client.post(
+            "/", data={"email": user.email, "password": "password123"},
+        )
+        self.assertRedirects(response, "/dashboard/")
+
+    def test_organization_suspension_revokes_access_and_stops_machine(self):
+        self.login(self.super_admin)
+        self.client.post(
+            "/organizations/toggle-status/", data={"id": self.organization.id},
+        )
+        self.organization.refresh_from_db()
+        self.machine.refresh_from_db()
+        self.assertEqual(self.organization.status, Organization.Status.SUSPENDED)
+        self.assertEqual(self.machine.status, Machine.Status.OFFLINE)
+        self.assertEqual(
+            self.machine.device_commands.latest("id").command,
+            MachineCommand.Command.STOP,
+        )
+
+        self.client.get("/logout/")
+        response = self.client.post(
+            "/", data={
+                "email": self.organization_admin.email,
+                "password": "password123",
+            },
+        )
+        self.assertContains(response, "หน่วยงานนี้ถูกระงับ", status_code=200)
+
+    def test_escalation_resets_status_and_reveals_issue_to_super_admin(self):
+        self.login(self.organization_admin)
+        self.client.post("/issues/escalate/", data={"id": self.issue.id})
+        self.issue.refresh_from_db()
+        self.assertEqual(self.issue.status, IssueReport.Status.WAITING)
+        self.assertIsNotNone(self.issue.escalated_at)
+        self.assertEqual(self.issue.escalated_by, self.organization_admin)
+
+        self.client.get("/logout/")
+        self.login(self.super_admin)
+        response = self.client.get("/issues/?tab=Waiting")
+        self.assertEqual(
+            [issue["id"] for issue in response.context["issues"]],
+            [self.issue.id],
+        )
+
+    def test_new_device_key_can_be_viewed_after_encrypted_storage(self):
+        device = MachineInformation(
+            serial_number="ESP32-FLOW", model="ESP32",
+        )
+        device.set_api_key("secret-device-key")
+        device.save()
+        device.refresh_from_db()
+
+        self.assertTrue(device.check_api_key("secret-device-key"))
+        self.assertEqual(device.get_api_key(), "secret-device-key")
+        self.assertNotIn("secret-device-key", device.api_key_ciphertext)
 
 
 class UserManagementPermissionTests(TestCase):
@@ -627,6 +715,7 @@ class ApiTests(TestCase):
             model="ESP32",
             hardware_status=MachineInformation.HardwareStatus.AVAILABLE,
         )
+        newest_machine.caretakers.add(self.user)
         Organization.objects.filter(pk=self.organization.pk).update(
             created_at=older_time,
         )
@@ -838,7 +927,7 @@ class ApiTests(TestCase):
         self.assertEqual(response.json()["detail"], "กรุณาปิดเครื่องก่อนทำการเก็บขยะ")
         self.assertFalse(CollectionHistory.objects.exists())
 
-    def test_collector_sees_all_machines_in_own_organization_only(self):
+    def test_collector_sees_only_assigned_machines(self):
         same_organization_machine = Machine.objects.create(
             id="M002",
             organization=self.organization,
@@ -866,7 +955,7 @@ class ApiTests(TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(
             {machine["id"] for machine in response.json()["results"]},
-            {self.machine.id, same_organization_machine.id},
+            {self.machine.id},
         )
         self.assertEqual(
             self.client.get(
@@ -876,7 +965,7 @@ class ApiTests(TestCase):
             404,
         )
 
-    def test_non_caretaker_can_view_machine_but_cannot_operate_it(self):
+    def test_non_caretaker_cannot_view_or_operate_machine(self):
         viewer = User(
             id="U-VIEW",
             organization=self.organization,
@@ -894,16 +983,7 @@ class ApiTests(TestCase):
             f"/api/v1/machines/{self.machine.id}/",
             **auth,
         )
-        self.assertEqual(detail_response.status_code, 200)
-        self.assertFalse(detail_response.json()["can_operate"])
-        self.assertEqual(
-            detail_response.json()["caretaker"],
-            {"id": self.user.id, "name": self.user.name},
-        )
-        self.assertEqual(
-            detail_response.json()["caretakers"],
-            [{"id": self.user.id, "name": self.user.name}],
-        )
+        self.assertEqual(detail_response.status_code, 404)
 
         status_response = self.client.patch(
             f"/api/v1/machines/{self.machine.id}/status/",
@@ -923,7 +1003,7 @@ class ApiTests(TestCase):
             content_type="application/json",
             **auth,
         )
-        self.assertEqual(collection_response.status_code, 403)
+        self.assertEqual(collection_response.status_code, 404)
         self.assertFalse(CollectionHistory.objects.filter(collector=viewer).exists())
 
         category = IssueCategory.objects.create(name="Read only test")
@@ -937,7 +1017,7 @@ class ApiTests(TestCase):
             content_type="application/json",
             **auth,
         )
-        self.assertEqual(issue_response.status_code, 403)
+        self.assertEqual(issue_response.status_code, 404)
         self.assertFalse(IssueReport.objects.filter(reporter=viewer).exists())
 
     def test_organization_admin_can_toggle_machine_without_caretaker_assignment(self):
@@ -1055,6 +1135,44 @@ class ApiTests(TestCase):
         self.assertContains(statistics_response, 'report-table')
         self.assertContains(statistics_response, 'table-header-group')
         self.assertContains(statistics_response, 'A4 landscape')
+
+    def test_dashboard_waste_distribution_matches_statistics_history(self):
+        collection_weights = {
+            MachineBin.WasteType.PLASTIC: "3.40",
+            MachineBin.WasteType.GLASS: "5.80",
+            MachineBin.WasteType.CAN: "1.70",
+        }
+        for waste_type, weight in collection_weights.items():
+            bin_item = self.machine.bins.get(waste_type=waste_type)
+            bin_item.current_weight_kg = "99.00"
+            bin_item.save(update_fields=["current_weight_kg"])
+            CollectionHistory.objects.create(
+                bin=bin_item,
+                collector=self.user,
+                weight_kg=weight,
+                collected_at=timezone.now(),
+            )
+
+        login_response = self.client.post("/", data={
+            "email": self.admin.email,
+            "password": "admin-password",
+        })
+        self.assertRedirects(login_response, "/dashboard/")
+
+        dashboard_response = self.client.get("/dashboard/")
+        statistics_response = self.client.get("/statistics/")
+
+        distribution = {
+            item["label"]: item["value"]
+            for item in dashboard_response.context["waste_distribution"]
+        }
+        self.assertEqual(distribution, {
+            "พลาสติก": 3.4,
+            "แก้ว": 5.8,
+            "กระป๋อง": 1.7,
+        })
+        self.assertAlmostEqual(sum(distribution.values()), 10.9)
+        self.assertAlmostEqual(statistics_response.context["total_weight"], 10.9)
 
     def test_admin_data_pages_offer_page_size_controls(self):
         login_response = self.client.post("/", data={
@@ -1518,6 +1636,8 @@ class ApiTests(TestCase):
             role=User.Role.COLLECTOR,
             status=User.Status.ACTIVE,
         )
+        self.machine.status = Machine.Status.ONLINE
+        self.machine.save(update_fields=["status"])
 
         def send_telemetry(recorded_at, plastic_level):
             return self.client.post(
@@ -1547,10 +1667,21 @@ class ApiTests(TestCase):
                 HTTP_X_DEVICE_KEY="device-secret",
             )
 
+        first_full_response = send_telemetry("2026-08-24T10:00:00+07:00", 95)
+        self.assertEqual(first_full_response.status_code, 201)
+        self.assertTrue(first_full_response.json()["auto_stopped"])
         self.assertEqual(
-            send_telemetry("2026-08-24T10:00:00+07:00", 95).status_code,
-            201,
+            first_full_response.json()["device_command"]["type"],
+            MachineCommand.Command.STOP,
         )
+        self.machine.refresh_from_db()
+        self.assertEqual(self.machine.status, Machine.Status.OFFLINE)
+        stop_command = self.machine.device_commands.get()
+        self.assertEqual(stop_command.command, MachineCommand.Command.STOP)
+        self.assertEqual(stop_command.payload, {
+            "reason": "BIN_FULL",
+            "waste_types": [MachineBin.WasteType.PLASTIC],
+        })
         event = NotificationEvent.objects.get(
             machine=self.machine,
             waste_type=MachineBin.WasteType.PLASTIC,
@@ -1564,10 +1695,10 @@ class ApiTests(TestCase):
         )
         self.assertFalse(Notification.objects.filter(recipient=outsider).exists())
 
-        self.assertEqual(
-            send_telemetry("2026-08-24T10:01:00+07:00", 96).status_code,
-            201,
-        )
+        repeated_full_response = send_telemetry("2026-08-24T10:01:00+07:00", 96)
+        self.assertEqual(repeated_full_response.status_code, 201)
+        self.assertFalse(repeated_full_response.json()["auto_stopped"])
+        self.assertEqual(self.machine.device_commands.count(), 1)
         self.assertEqual(NotificationEvent.objects.count(), 1)
         self.assertEqual(Notification.objects.filter(action_required=True).count(), 2)
 
@@ -1624,3 +1755,25 @@ class ApiTests(TestCase):
             201,
         )
         self.assertEqual(NotificationEvent.objects.count(), 2)
+
+    def test_full_bin_blocks_machine_restart_until_bin_is_reset(self):
+        plastic = self.machine.bins.get(waste_type=MachineBin.WasteType.PLASTIC)
+        plastic.current_level_percent = plastic.full_threshold_percent
+        plastic.save(update_fields=["current_level_percent"])
+        token = self.login_token()
+
+        response = self.client.patch(
+            f"/api/v1/machines/{self.machine.id}/status/",
+            data=json.dumps({"is_on": True}),
+            content_type="application/json",
+            HTTP_AUTHORIZATION=f"Bearer {token}",
+        )
+
+        self.assertEqual(response.status_code, 409)
+        self.assertEqual(
+            response.json()["detail"],
+            "มีถังเต็มอยู่ กรุณาเก็บขยะและรีเซ็ตถังก่อนเปิดเครื่อง",
+        )
+        self.machine.refresh_from_db()
+        self.assertEqual(self.machine.status, Machine.Status.OFFLINE)
+        self.assertFalse(self.machine.device_commands.exists())

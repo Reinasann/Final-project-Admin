@@ -2,12 +2,9 @@
 {% load core_extras %}
 {% block content %}
 <div class="p-6">
-  <div class="flex flex-col md:flex-row justify-between md:items-center gap-4 mb-4">
-    <div>
-      <h1 class="text-2xl font-bold text-gray-800">แจ้งซ่อม</h1>
-      <p class="text-gray-500 text-sm">แสดงรายการปัญหาที่ส่งมาจากผู้เก็บขยะ</p>
-    </div>
-    <button onclick="document.getElementById('topic-modal').classList.remove('hidden')" class="flex items-center gap-2 px-4 py-2 bg-white border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition shadow-sm font-medium">
+  <div class="relative flex flex-col items-center gap-4 mb-4 md:min-h-10 md:justify-center">
+    <h1 class="text-center text-2xl font-bold text-gray-800">แจ้งซ่อม</h1>
+    <button onclick="document.getElementById('topic-modal').classList.remove('hidden')" class="flex items-center gap-2 px-4 py-2 bg-white border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition shadow-sm font-medium md:absolute md:right-0">
       <i data-lucide="list" class="w-4 h-4"></i> จัดการหัวข้อปัญหา
     </button>
   </div>
@@ -25,8 +22,8 @@
   <div class="flex flex-col md:flex-row gap-6">
     <div class="flex-1 space-y-3" id="issue-list">
       {% for issue in issues %}
-      <div onclick="selectIssue({{ issue.id }},'{{ issue.title|escapejs }}','{{ issue.description|escapejs }}','{{ issue.reporter|escapejs }}','{{ issue.location|escapejs }}','{{ issue.reportDate|ddmmyy }}','{{ issue.status }}')" class="issue-card p-4 rounded-xl border bg-white cursor-pointer transition-all hover:shadow-md border-gray-200" id="card-{{ issue.id }}">
-        <div class="flex justify-between items-start mb-2"><h3 class="font-bold text-gray-800">{{ issue.title }}</h3><span class="text-xs text-gray-400">{{ issue.time }}</span></div>
+      <div onclick="selectIssue({{ issue.id }},'{{ issue.title|escapejs }}','{{ issue.description|escapejs }}','{{ issue.reporter|escapejs }}','{{ issue.location|escapejs }}','{{ issue.reportDate|ddmmyy }}','{{ issue.status }}','{{ issue.escalated|yesno:"true,false" }}')" class="issue-card p-4 rounded-xl border bg-white cursor-pointer transition-all hover:shadow-md border-gray-200" id="card-{{ issue.id }}">
+        <div class="flex justify-between items-start mb-2"><div class="flex flex-wrap items-center gap-2"><h3 class="font-bold text-gray-800">{{ issue.title }}</h3>{% if issue.escalated %}<span class="rounded-full bg-purple-100 px-2 py-0.5 text-xs font-semibold text-purple-700">ส่งต่อให้แอดมินสูงสุดแล้ว</span>{% endif %}</div><span class="text-xs text-gray-400">{{ issue.time }}</span></div>
         <p class="text-sm text-gray-500 line-clamp-2">{{ issue.description }}</p>
         <div class="flex items-center gap-2 mt-3 text-xs text-gray-400"><span class="accent-soft px-2 py-1 rounded font-medium">{{ issue.reporter|truncatewords:1 }}</span><span>•</span><span>{{ issue.location }}</span></div>
       </div>
@@ -54,6 +51,7 @@
           {% csrf_token %}<input type="hidden" name="id" id="next-issue-id"/><input type="hidden" name="tab" value="{{ active_tab }}"/>
           <button type="button" id="btn-next" onclick="showConfirm('ยืนยันสถานะ','ต้องการดำเนินการรายการนี้หรือไม่?','form-next-status')" class="w-full py-2.5 text-white rounded-lg font-medium flex items-center justify-center gap-2 accent-bg">รับเรื่อง / ดำเนินการ</button>
         </form>
+        {% if not is_system_admin %}<form id="form-escalate" method="post" action="/issues/escalate/" class="mt-3">{% csrf_token %}<input type="hidden" name="id" id="escalate-issue-id"/><button id="btn-escalate" type="button" onclick="showConfirm('ยืนยันการส่งเรื่อง','รายการจะถูกส่งให้แอดมินสูงสุดและเริ่มที่สถานะรอดำเนินการ','form-escalate')" class="w-full rounded-lg border border-purple-200 bg-purple-50 py-2.5 font-medium text-purple-700">ส่งเรื่องให้แอดมินสูงสุด</button></form>{% endif %}
       </div>
     </div>
   </div>
@@ -73,7 +71,7 @@
 {% if request.GET.topics %}<script>document.getElementById('topic-modal').classList.remove('hidden');</script>{% endif %}
 <script>
 lucide.createIcons();let selectedId=null;
-function selectIssue(id,title,desc,reporter,location,date,status){selectedId=id;document.querySelectorAll('.issue-card').forEach(c=>c.classList.remove('accent-border','ring-1'));document.getElementById('card-'+id)?.classList.add('accent-border','ring-1');document.getElementById('d-title').textContent=title;document.getElementById('d-desc').textContent=desc;document.getElementById('d-reporter').textContent=reporter;document.getElementById('d-loc').textContent=location+' ('+date+')';document.getElementById('next-issue-id').value=id;const btn=document.getElementById('btn-next');if(status==='Completed'){btn.closest('form').classList.add('hidden')}else{btn.closest('form').classList.remove('hidden');btn.textContent=status==='Waiting'?'รับเรื่อง / ดำเนินการ':'ปิดงาน (เสร็จสิ้น)'}document.getElementById('detail-empty').classList.add('hidden');document.getElementById('detail-panel').classList.remove('hidden');lucide.createIcons()}
+function selectIssue(id,title,desc,reporter,location,date,status,escalated){selectedId=id;document.querySelectorAll('.issue-card').forEach(c=>c.classList.remove('accent-border','ring-1'));document.getElementById('card-'+id)?.classList.add('accent-border','ring-1');document.getElementById('d-title').textContent=title;document.getElementById('d-desc').textContent=desc;document.getElementById('d-reporter').textContent=reporter;document.getElementById('d-loc').textContent=location+' ('+date+')';document.getElementById('next-issue-id').value=id;const btn=document.getElementById('btn-next');if(status==='Completed'){btn.closest('form').classList.add('hidden')}else{btn.closest('form').classList.remove('hidden');btn.textContent=status==='Waiting'?'รับเรื่อง / ดำเนินการ':'ปิดงาน (เสร็จสิ้น)'}const escalationId=document.getElementById('escalate-issue-id');const escalationButton=document.getElementById('btn-escalate');if(escalationId)escalationId.value=id;if(escalationButton)escalationButton.closest('form').classList.toggle('hidden',status==='Completed'||escalated==='true');document.getElementById('detail-empty').classList.add('hidden');document.getElementById('detail-panel').classList.remove('hidden');lucide.createIcons()}
 function clearDetail(){selectedId=null;document.getElementById('detail-empty').classList.remove('hidden');document.getElementById('detail-panel').classList.add('hidden');document.querySelectorAll('.issue-card').forEach(c=>c.classList.remove('accent-border','ring-1'))}
 </script>
 {% endblock %}

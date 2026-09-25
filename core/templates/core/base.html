@@ -338,7 +338,7 @@ function adminAjaxSubmitForm(form,submitter){
 }
 function adminCanRefreshInBackground(){
   if(document.hidden||adminBackgroundRefreshInFlight||adminAjaxRequestController)return false;
-  if(document.querySelector('#detail-modal:not(.hidden),#overview-map-modal:not(.hidden),#add-form:not(.hidden),#detail-panel:not(.hidden)'))return false;
+  if(document.querySelector('#detail-modal:not(.hidden),#overview-map-modal:not(.hidden),#device-panel:not(.hidden),#add-form:not(.hidden),#detail-panel:not(.hidden)'))return false;
   return !document.activeElement?.matches('input,select,textarea');
 }
 async function adminRefreshCurrentPage(){

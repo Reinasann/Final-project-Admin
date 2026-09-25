@@ -1,16 +1,9 @@
 {% extends base_template %}
 {% block content %}
 <div class="p-6 space-y-6">
-  <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-    <div>
-      <h1 class="text-2xl font-bold text-gray-800">ผู้ใช้งาน</h1>
-      {% if is_system_admin %}
-        <p class="text-gray-500">{% if view_scope == 'all' %}ดูผู้ใช้งานของทุกหน่วยงาน{% else %}จัดการแอดมินหน่วยงาน{% endif %}</p>
-      {% else %}
-        <p class="text-gray-500">จัดการผู้เก็บขยะของ {{ current_org.name }}</p>
-      {% endif %}
-    </div>
-    <button onclick="document.getElementById('add-user').classList.toggle('hidden')" class="flex items-center justify-center gap-2 px-4 py-2 text-white rounded-lg accent-bg">
+  <div class="relative flex flex-col items-center gap-4 md:min-h-10 md:justify-center">
+    <h1 class="text-center text-2xl font-bold text-gray-800">ผู้ใช้งาน</h1>
+    <button onclick="document.getElementById('add-user').classList.toggle('hidden')" class="flex items-center justify-center gap-2 px-4 py-2 text-white rounded-lg accent-bg md:absolute md:right-0">
       <i data-lucide="user-plus" class="w-4 h-4"></i>
       {% if is_system_admin %}เพิ่มแอดมินหน่วยงาน{% else %}เพิ่มผู้เก็บขยะ{% endif %}
     </button>

@@ -2,7 +2,10 @@
 
 import hashlib
 import hmac
+import base64
 
+from cryptography.fernet import Fernet, InvalidToken
+from django.conf import settings
 from django.contrib.auth.hashers import check_password, make_password
 from django.core.validators import MaxValueValidator, MinValueValidator
 from django.db import models
@@ -11,9 +14,14 @@ from django.utils import timezone
 
 
 class Organization(models.Model):
+    class Status(models.TextChoices):
+        ACTIVE = "Active", "ใช้งาน"
+        SUSPENDED = "Suspended", "ระงับ"
+
     id = models.CharField(max_length=32, primary_key=True)
     name = models.CharField(max_length=150, unique=True)
     card_color = models.CharField(max_length=7, default="#2563eb")
+    status = models.CharField(max_length=20, choices=Status.choices, default=Status.ACTIVE)
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:
@@ -74,12 +82,32 @@ class MachineInformation(models.Model):
         max_length=20, choices=HardwareStatus.choices, default=HardwareStatus.AVAILABLE
     )
     api_key_hash = models.CharField(max_length=128, blank=True)
+    api_key_ciphertext = models.TextField(blank=True)
     firmware_version = models.CharField(max_length=50, blank=True)
     last_seen_at = models.DateTimeField(null=True, blank=True)
     created_at = models.DateTimeField(default=timezone.now, editable=False)
 
     def set_api_key(self, raw_key):
         self.api_key_hash = make_password(raw_key)
+        encryption_key = base64.urlsafe_b64encode(
+            hashlib.sha256(settings.SECRET_KEY.encode("utf-8")).digest()
+        )
+        self.api_key_ciphertext = Fernet(encryption_key).encrypt(
+            raw_key.encode("utf-8")
+        ).decode("ascii")
+
+    def get_api_key(self):
+        if not self.api_key_ciphertext:
+            return ""
+        encryption_key = base64.urlsafe_b64encode(
+            hashlib.sha256(settings.SECRET_KEY.encode("utf-8")).digest()
+        )
+        try:
+            return Fernet(encryption_key).decrypt(
+                self.api_key_ciphertext.encode("ascii")
+            ).decode("utf-8")
+        except (InvalidToken, ValueError):
+            return ""
 
     def check_api_key(self, raw_key):
         return bool(self.api_key_hash) and check_password(raw_key, self.api_key_hash)
@@ -93,6 +121,7 @@ class Machine(models.Model):
         ONLINE = "Online", "Online"
         OFFLINE = "Offline", "Offline"
         MAINTENANCE = "Maintenance", "Maintenance"
+        SUSPENDED = "Suspended", "ระงับ"
 
     id = models.CharField(max_length=20, primary_key=True)
     organization = models.ForeignKey(Organization, on_delete=models.PROTECT, related_name="machines")
@@ -326,6 +355,14 @@ class IssueReport(models.Model):
     reported_at = models.DateTimeField(auto_now_add=True)
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.WAITING)
     updated_at = models.DateTimeField(auto_now=True)
+    escalated_at = models.DateTimeField(null=True, blank=True)
+    escalated_by = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        related_name="escalated_issue_reports",
+        null=True,
+        blank=True,
+    )
 
     class Meta:
         ordering = ["-reported_at"]

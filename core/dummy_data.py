@@ -30,6 +30,7 @@ def get_organizations(session):
             'id': row.id,
             'name': row.name,
             'card_color': row.card_color,
+            'status': row.status,
             'created_at': row.created_at,
         }
         for row in Organization.objects.order_by('name')
@@ -81,6 +82,9 @@ def get_issues(session):
             'description': row.description, 'location': row.machine.name,
             'reportDate': reported_at.date().isoformat(),
             'organization_id': row.machine.organization_id,
+            'escalated': bool(row.escalated_at),
+            'escalated_at': display_datetime(row.escalated_at) if row.escalated_at else '',
+            'escalated_by': row.escalated_by.name if row.escalated_by else '',
         })
     return result
 

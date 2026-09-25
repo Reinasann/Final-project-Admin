@@ -9,7 +9,7 @@ from functools import wraps
 from django.conf import settings
 from django.core.mail import send_mail
 from django.db import IntegrityError, transaction
-from django.db.models import Q
+from django.db.models import F, Q
 from django.http import JsonResponse
 from django.utils import timezone
 from django.utils.dateparse import parse_datetime
@@ -19,7 +19,7 @@ from django.views.decorators.http import require_GET, require_http_methods, requ
 from .models import (
     ApiToken, CollectionHistory, IssueCategory, IssueReport, Machine, MachineBin,
     MachineCommand,
-    Notification, NotificationEvent, NotificationType, PasswordResetCode,
+    Notification, NotificationEvent, NotificationType, Organization, PasswordResetCode,
     PushDevice, Telemetry, User,
 )
 from .push import send_notification_deliveries
@@ -42,11 +42,11 @@ def decimal_value(value, field, minimum=None, maximum=None):
     try:
         parsed = Decimal(str(value))
     except (InvalidOperation, TypeError, ValueError):
-        raise ValueError(f"{field} must be a number.")
+        raise ValueError(f"{field} ต้องเป็นตัวเลข")
     if minimum is not None and parsed < minimum:
-        raise ValueError(f"{field} must be at least {minimum}.")
+        raise ValueError(f"{field} ต้องไม่น้อยกว่า {minimum}")
     if maximum is not None and parsed > maximum:
-        raise ValueError(f"{field} must be at most {maximum}.")
+        raise ValueError(f"{field} ต้องไม่มากกว่า {maximum}")
     return parsed
 
 
@@ -166,17 +166,23 @@ def token_required(view):
     def wrapped(request, *args, **kwargs):
         header = request.headers.get("Authorization", "")
         if not header.startswith("Bearer "):
-            return response_error("Bearer token is required.", 401)
+            return response_error("กรุณาเข้าสู่ระบบ", 401)
         raw_token = header[7:].strip()
         now = timezone.now()
-        token = ApiToken.objects.select_related("user").filter(
+        token = ApiToken.objects.select_related("user__organization").filter(
             token_hash=ApiToken.digest_token(raw_token),
             revoked_at__isnull=True,
         ).first()
         if token is None or not token.is_valid(raw_token, now):
-            return response_error("Invalid or expired token.", 401)
+            return response_error("ข้อมูลเข้าสู่ระบบไม่ถูกต้องหรือหมดอายุ", 401)
         if token.user.status != User.Status.ACTIVE:
             return response_error(inactive_account_message(token.user.status), 403)
+        if (
+            token.user.role != User.Role.SUPER_ADMIN
+            and token.user.organization
+            and token.user.organization.status == Organization.Status.SUSPENDED
+        ):
+            return response_error("หน่วยงานนี้ถูกระงับ กรุณาติดต่อผู้ดูแลระบบ", 403)
         request.api_user = token.user
         request.api_token = token
         return view(request, *args, **kwargs)
@@ -188,10 +194,13 @@ def visible_machines(user):
         "bins", "caretakers",
     ).order_by("-created_at", "-id")
     if user.role == User.Role.SUPER_ADMIN:
-        return machines
+        return machines.exclude(status=Machine.Status.SUSPENDED)
     if not user.organization_id:
         return machines.none()
-    return machines.filter(organization_id=user.organization_id)
+    return machines.filter(
+        organization_id=user.organization_id,
+        caretakers=user,
+    ).exclude(status=Machine.Status.SUSPENDED).distinct()
 
 
 WASTE_TYPE_LABELS = {
@@ -214,7 +223,7 @@ def create_full_bin_notification(machine, bin_item, level):
     title = f"ถัง{waste_label}เต็มแล้ว"
     message = (
         f"ถัง{waste_label}ของเครื่อง {machine.name} มีระดับ {format(level, 'f')}% "
-        "กรุณากดตอบรับเพื่อดำเนินการเก็บขยะ"
+        "ระบบสั่งหยุดเครื่องอัตโนมัติแล้ว กรุณากดตอบรับเพื่อดำเนินการเก็บขยะ"
     )
     try:
         with transaction.atomic():
@@ -272,14 +281,20 @@ def resolve_full_bin_notification(machine, waste_type, resolved_at):
 def login(request):
     payload = json_body(request)
     if payload is None:
-        return response_error("Request body must be valid JSON.")
+        return response_error("ข้อมูลที่ส่งมาไม่ถูกต้อง")
     email = str(payload.get("email", "")).strip().lower()
     password = str(payload.get("password", ""))
-    user = User.objects.filter(email__iexact=email).first()
+    user = User.objects.select_related("organization").filter(email__iexact=email).first()
     if not user or not user.check_password(password):
-        return response_error("Invalid email or password.", 401)
+        return response_error("อีเมลหรือรหัสผ่านไม่ถูกต้อง", 401)
     if user.status != User.Status.ACTIVE:
         return response_error(inactive_account_message(user.status), 403)
+    if (
+        user.role != User.Role.SUPER_ADMIN
+        and user.organization
+        and user.organization.status == Organization.Status.SUSPENDED
+    ):
+        return response_error("หน่วยงานนี้ถูกระงับ กรุณาติดต่อผู้ดูแลระบบ", 403)
     raw_token = secrets.token_urlsafe(32)
     # The mobile app keeps its opaque token in encrypted device storage. The
     # session remains valid until the user explicitly logs out, an admin
@@ -309,7 +324,7 @@ def logout(request):
 def request_password_reset(request):
     payload = json_body(request)
     if payload is None:
-        return response_error("Request body must be valid JSON.")
+        return response_error("ข้อมูลที่ส่งมาไม่ถูกต้อง")
     email = str(payload.get("email", "")).strip().lower()
     if not email:
         return response_error("กรุณากรอกอีเมล")
@@ -317,6 +332,9 @@ def request_password_reset(request):
     user = User.objects.filter(
         email__iexact=email,
         status=User.Status.ACTIVE,
+    ).filter(
+        Q(role=User.Role.SUPER_ADMIN)
+        | Q(organization__status=Organization.Status.ACTIVE)
     ).first()
     response = {
         "detail": "หากอีเมลนี้อยู่ในระบบ เราได้ส่งรหัสยืนยันให้แล้ว",
@@ -357,7 +375,7 @@ def request_password_reset(request):
 def confirm_password_reset(request):
     payload = json_body(request)
     if payload is None:
-        return response_error("Request body must be valid JSON.")
+        return response_error("ข้อมูลที่ส่งมาไม่ถูกต้อง")
     email = str(payload.get("email", "")).strip().lower()
     code = str(payload.get("code", "")).strip()
     new_password = str(payload.get("new_password", ""))
@@ -410,7 +428,7 @@ def me(request):
 def register_push_device(request):
     payload = json_body(request)
     if payload is None:
-        return response_error("Request body must be valid JSON.")
+        return response_error("ข้อมูลที่ส่งมาไม่ถูกต้อง")
     token = str(payload.get("token", "")).strip()
     platform = str(payload.get("platform", "android")).strip().lower()
     if not token or len(token) > 4096:
@@ -435,7 +453,7 @@ def register_push_device(request):
 def unregister_push_device(request):
     payload = json_body(request)
     if payload is None:
-        return response_error("Request body must be valid JSON.")
+        return response_error("ข้อมูลที่ส่งมาไม่ถูกต้อง")
     token = str(payload.get("token", "")).strip()
     PushDevice.objects.filter(
         user=request.api_user,
@@ -450,7 +468,7 @@ def unregister_push_device(request):
 def update_profile(request):
     payload = json_body(request)
     if payload is None:
-        return response_error("Request body must be valid JSON.")
+        return response_error("ข้อมูลที่ส่งมาไม่ถูกต้อง")
     user = request.api_user
     user.name = str(payload.get("name", user.name)).strip() or user.name
     user.phone = str(payload.get("phone", user.phone)).strip()
@@ -464,17 +482,17 @@ def update_profile(request):
 def change_password(request):
     payload = json_body(request)
     if payload is None:
-        return response_error("Request body must be valid JSON.")
+        return response_error("ข้อมูลที่ส่งมาไม่ถูกต้อง")
     old_password = str(payload.get("old_password", ""))
     new_password = str(payload.get("new_password", ""))
     user = request.api_user
     if not user.check_password(old_password):
-        return response_error("Current password is incorrect.", 400)
+        return response_error("รหัสผ่านปัจจุบันไม่ถูกต้อง", 400)
     if len(new_password) < 8:
-        return response_error("New password must contain at least 8 characters.")
+        return response_error("รหัสผ่านใหม่ต้องมีอย่างน้อย 8 ตัวอักษร")
     user.set_password(new_password)
     user.save(update_fields=["password"])
-    return JsonResponse({"detail": "Password updated."})
+    return JsonResponse({"detail": "เปลี่ยนรหัสผ่านเรียบร้อยแล้ว"})
 
 
 @require_GET
@@ -493,7 +511,7 @@ def machines(request):
 def machine_detail(request, machine_id):
     machine = visible_machines(request.api_user).filter(pk=machine_id).first()
     if machine is None:
-        return response_error("Machine not found.", 404)
+        return response_error("ไม่พบเครื่องคัดแยกขยะ", 404)
     return JsonResponse(serialize_machine(machine, request.api_user))
 
 
@@ -503,7 +521,7 @@ def machine_detail(request, machine_id):
 def update_machine_status(request, machine_id):
     payload = json_body(request)
     if payload is None or not isinstance(payload.get("is_on"), bool):
-        return response_error("is_on must be a boolean.")
+        return response_error("สถานะเครื่องไม่ถูกต้อง")
     with transaction.atomic():
         machine_query = Machine.objects.select_for_update().filter(pk=machine_id)
         if request.api_user.role != User.Role.SUPER_ADMIN:
@@ -512,9 +530,18 @@ def update_machine_status(request, machine_id):
             )
         machine = machine_query.first()
         if machine is None:
-            return response_error("Machine not found.", 404)
+            return response_error("ไม่พบเครื่องคัดแยกขยะ", 404)
+        if machine.status == Machine.Status.SUSPENDED:
+            return response_error("เครื่องนี้ถูกระงับการใช้งาน", 409)
         if not can_operate_machine(request.api_user, machine):
             return response_error("เฉพาะผู้ดูแลเครื่องเท่านั้นที่สามารถใช้งานเครื่องนี้ได้", 403)
+        if payload["is_on"] and machine.bins.filter(
+            current_level_percent__gte=F("full_threshold_percent"),
+        ).exists():
+            return response_error(
+                "มีถังเต็มอยู่ กรุณาเก็บขยะและรีเซ็ตถังก่อนเปิดเครื่อง",
+                409,
+            )
         changed_at = timezone.now()
         machine.status = Machine.Status.ONLINE if payload["is_on"] else Machine.Status.OFFLINE
         machine.telemetry_paused_at = None
@@ -536,7 +563,7 @@ def update_machine_status(request, machine_id):
 def telemetry_history(request, machine_id):
     machine = visible_machines(request.api_user).filter(pk=machine_id).first()
     if machine is None:
-        return response_error("Machine not found.", 404)
+        return response_error("ไม่พบเครื่องคัดแยกขยะ", 404)
     limit = min(max(int(request.GET.get("limit", 60)), 1), 500)
     rows = Telemetry.objects.filter(bin__machine=machine).select_related("bin")[:limit]
     return JsonResponse({"results": [
@@ -554,10 +581,10 @@ def telemetry_history(request, machine_id):
 def create_collection(request):
     payload = json_body(request)
     if payload is None:
-        return response_error("Request body must be valid JSON.")
+        return response_error("ข้อมูลที่ส่งมาไม่ถูกต้อง")
     machine = visible_machines(request.api_user).filter(pk=payload.get("machine_id")).first()
     if machine is None:
-        return response_error("Machine not found.", 404)
+        return response_error("ไม่พบเครื่องคัดแยกขยะ", 404)
     if not can_operate_machine(request.api_user, machine):
         return response_error("เฉพาะผู้ดูแลเครื่องเท่านั้นที่สามารถเก็บขยะจากเครื่องนี้ได้", 403)
     if machine.status != Machine.Status.OFFLINE:
@@ -565,7 +592,7 @@ def create_collection(request):
     waste_type = payload.get("waste_type")
     bin_item = machine.bins.filter(waste_type=waste_type).first()
     if bin_item is None:
-        return response_error("Waste type was not found on this machine.", 404)
+        return response_error("ไม่พบประเภทขยะนี้ในเครื่อง", 404)
     try:
         weight = decimal_value(payload.get("weight_kg"), "weight_kg", Decimal("0"))
     except ValueError as error:
@@ -649,16 +676,16 @@ def issue_categories(request):
 def create_issue(request):
     payload = json_body(request)
     if payload is None:
-        return response_error("Request body must be valid JSON.")
+        return response_error("ข้อมูลที่ส่งมาไม่ถูกต้อง")
     machine = visible_machines(request.api_user).filter(pk=payload.get("machine_id")).first()
     category = IssueCategory.objects.filter(pk=payload.get("category_id"), is_active=True).first()
     description = str(payload.get("description", "")).strip()
     if machine is None or category is None:
-        return response_error("Machine or issue category was not found.", 404)
+        return response_error("ไม่พบเครื่องหรือหัวข้อปัญหาที่เลือก", 404)
     if not can_operate_machine(request.api_user, machine):
         return response_error("เฉพาะผู้ดูแลเครื่องเท่านั้นที่สามารถแจ้งปัญหาเครื่องนี้ได้", 403)
     if not description:
-        return response_error("description is required.")
+        return response_error("กรุณากรอกรายละเอียดปัญหา")
     item = IssueReport.objects.create(machine=machine, category=category, reporter=request.api_user, description=description)
     return JsonResponse({"id": item.id, "status": item.status, "reported_at": item.reported_at.isoformat()}, status=201)
 
@@ -697,7 +724,7 @@ def notifications(request):
 def mark_notification_read(request, notification_id):
     item = request.api_user.notifications.filter(pk=notification_id).first()
     if item is None:
-        return response_error("Notification not found.", 404)
+        return response_error("ไม่พบการแจ้งเตือน", 404)
     item.is_read = True
     item.save(update_fields=["is_read"])
     return JsonResponse({"id": item.id, "is_read": True})
@@ -792,7 +819,7 @@ def poll_device_command(request):
             for_update=True,
         )
         if machine is None:
-            return response_error("Invalid device credentials.", 401)
+            return response_error("ข้อมูลยืนยันอุปกรณ์ไม่ถูกต้อง", 401)
 
         now = timezone.now()
         machine.device.last_seen_at = now
@@ -827,7 +854,7 @@ def acknowledge_device_command(request, command_id):
     """Record execution success/failure reported by the ESP32."""
     payload = json_body(request)
     if payload is None or not isinstance(payload.get("success"), bool):
-        return response_error("success must be a boolean.")
+        return response_error("ผลการทำงานต้องเป็นค่าจริงหรือเท็จ")
     device_id = str(payload.get("device_id", "")).strip()
     device_key = request.headers.get("X-Device-Key", "")
     with transaction.atomic():
@@ -837,12 +864,12 @@ def acknowledge_device_command(request, command_id):
             for_update=True,
         )
         if machine is None:
-            return response_error("Invalid device credentials.", 401)
+            return response_error("ข้อมูลยืนยันอุปกรณ์ไม่ถูกต้อง", 401)
         command = machine.device_commands.select_for_update().filter(
             pk=command_id,
         ).first()
         if command is None:
-            return response_error("Command not found.", 404)
+            return response_error("ไม่พบคำสั่ง", 404)
         if command.status in {
             MachineCommand.Status.ACKNOWLEDGED,
             MachineCommand.Status.FAILED,
@@ -876,7 +903,7 @@ def ingest_telemetry(request):
     """ESP32 endpoint. Device sends calculated weight and fill level every minute."""
     payload = json_body(request)
     if payload is None:
-        return response_error("Request body must be valid JSON.")
+        return response_error("ข้อมูลที่ส่งมาไม่ถูกต้อง")
     device_id = str(payload.get("device_id", ""))
     device_key = request.headers.get("X-Device-Key", "")
     with transaction.atomic():
@@ -884,7 +911,7 @@ def ingest_telemetry(request):
             "bins",
         ).filter(device_id=device_id).first()
         if machine is None or not machine.device.check_api_key(device_key):
-            return response_error("Invalid device credentials.", 401)
+            return response_error("ข้อมูลยืนยันอุปกรณ์ไม่ถูกต้อง", 401)
 
         received_at = timezone.now()
         machine.device.last_seen_at = received_at
@@ -901,12 +928,12 @@ def ingest_telemetry(request):
             timestamp = timezone.make_aware(timestamp, timezone.get_current_timezone())
         readings = payload.get("bins")
         if not isinstance(readings, list) or not readings:
-            return response_error("bins must be a non-empty list.")
+            return response_error("กรุณาส่งข้อมูลถังอย่างน้อยหนึ่งรายการ")
         bins_by_type = {item.waste_type: item for item in machine.bins.all()}
         parsed_readings = []
         for reading in readings:
             if not isinstance(reading, dict) or reading.get("waste_type") not in bins_by_type:
-                return response_error("Each reading must reference a configured waste_type.")
+                return response_error("ข้อมูลแต่ละถังต้องระบุประเภทขยะที่ตั้งค่าไว้")
             try:
                 weight = decimal_value(reading.get("weight_kg"), "weight_kg", Decimal("0"))
                 level = decimal_value(reading.get("level_percent"), "level_percent", Decimal("0"), Decimal("100"))
@@ -915,6 +942,7 @@ def ingest_telemetry(request):
             parsed_readings.append((reading, weight, level))
 
         created = []
+        full_bins = []
         for reading, weight, level in parsed_readings:
             bin_item = bins_by_type[reading["waste_type"]]
             telemetry, created_now = Telemetry.objects.get_or_create(
@@ -930,14 +958,35 @@ def ingest_telemetry(request):
             bin_item.save(update_fields=["current_weight_kg", "current_level_percent", "last_measured_at"])
             if level >= bin_item.full_threshold_percent:
                 create_full_bin_notification(machine, bin_item, level)
+                full_bins.append(bin_item)
             else:
                 resolve_full_bin_notification(machine, bin_item.waste_type, timestamp)
             created.append({"waste_type": bin_item.waste_type, "telemetry_id": telemetry.id})
+
+        auto_stopped = bool(full_bins and machine.status == Machine.Status.ONLINE)
+        stop_command = None
+        if auto_stopped:
+            machine.status = Machine.Status.OFFLINE
+            machine.telemetry_paused_at = None
+            stop_command = enqueue_machine_command(
+                machine,
+                MachineCommand.Command.STOP,
+                {
+                    "reason": "BIN_FULL",
+                    "waste_types": [item.waste_type for item in full_bins],
+                },
+            )
         machine.last_updated_at = timestamp
-        machine.save(update_fields=["last_updated_at"])
+        machine.save(update_fields=[
+            "status", "telemetry_paused_at", "last_updated_at",
+        ])
     return JsonResponse({
         "machine_id": machine.id,
         "recorded_at": timestamp.isoformat(),
         "readings": created,
         "auto_online": False,
+        "auto_stopped": auto_stopped,
+        "device_command": (
+            serialize_machine_command(stop_command) if stop_command else None
+        ),
     }, status=201)

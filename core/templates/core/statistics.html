@@ -34,9 +34,9 @@
   }
 </style>
 <div class="statistics-page p-6" style="--report-color:{{ report_color }}">
-  <div class="no-print flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
-    <div><h1 class="text-2xl font-bold text-gray-800">รายงาน</h1>{% if current_org %}<p class="text-gray-500">รายงานการเก็บขยะของ {{ current_org.name }}</p>{% else %}<p class="text-gray-500">รายงานทั้งระบบ เลือกดูตามหน่วยงานได้</p>{% endif %}</div>
-    <div class="flex gap-2"><a href="/statistics/export/?start={{ start_date }}&end={{ end_date }}&search={{ search }}&organization={{ organization_filter }}&machine={{ machine_filter }}&type={{ type_filter }}&staff={{ staff_filter }}" class="flex items-center gap-2 px-3 py-2 bg-green-50 text-green-700 rounded-lg hover:bg-green-100 text-sm font-medium border border-green-100"><i data-lucide="download" class="w-4 h-4"></i>ส่งออก CSV</a><button type="button" onclick="printStatisticsReport()" class="flex items-center gap-2 px-3 py-2 bg-red-50 text-red-700 rounded-lg hover:bg-red-100 text-sm font-medium border border-red-100"><i data-lucide="file-text" class="w-4 h-4"></i>ส่งออก PDF</button></div>
+  <div class="no-print relative flex flex-col items-center gap-4 mb-6 md:min-h-10 md:justify-center">
+    <h1 class="text-center text-2xl font-bold text-gray-800">รายงาน</h1>
+    <div class="flex gap-2 md:absolute md:right-0"><a href="/statistics/export/?start={{ start_date }}&end={{ end_date }}&search={{ search }}&organization={{ organization_filter }}&machine={{ machine_filter }}&type={{ type_filter }}&staff={{ staff_filter }}" class="flex items-center gap-2 px-3 py-2 bg-green-50 text-green-700 rounded-lg hover:bg-green-100 text-sm font-medium border border-green-100"><i data-lucide="download" class="w-4 h-4"></i>ส่งออก CSV</a><button type="button" onclick="printStatisticsReport()" class="flex items-center gap-2 px-3 py-2 bg-red-50 text-red-700 rounded-lg hover:bg-red-100 text-sm font-medium border border-red-100"><i data-lucide="file-text" class="w-4 h-4"></i>ส่งออก PDF</button></div>
   </div>
 
   <header class="print-only report-print-header">

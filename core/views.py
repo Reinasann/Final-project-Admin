@@ -7,7 +7,7 @@ from datetime import datetime, timedelta
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 from io import StringIO
 from django.db import IntegrityError, transaction
-from django.db.models import Count, Max, Q
+from django.db.models import Count, F, Max, Q
 from django.core.paginator import Paginator
 from django.shortcuts import render, redirect
 from django.http import HttpResponse, HttpResponseForbidden, JsonResponse
@@ -19,7 +19,7 @@ from .dummy_data import (
 )
 from . import api
 from .models import (
-    CollectionHistory, IssueCategory, IssueReport, Machine, MachineBin,
+    ApiToken, CollectionHistory, IssueCategory, IssueReport, Machine, MachineBin,
     MachineCommand, MachineInformation, Organization, User,
 )
 
@@ -184,6 +184,19 @@ def login_required(view):
     def wrapper(request, *args, **kwargs):
         if not request.session.get('logged_in'):
             return redirect('login')
+        user = User.objects.select_related('organization').filter(
+            pk=request.session.get('user_id')
+        ).first()
+        if (
+            not user
+            or (
+                user.role != User.Role.SUPER_ADMIN
+                and user.organization
+                and user.organization.status == Organization.Status.SUSPENDED
+            )
+        ):
+            request.session.flush()
+            return redirect('/?suspended=1')
         return view(request, *args, **kwargs)
     wrapper.__name__ = view.__name__
     return wrapper
@@ -198,7 +211,13 @@ def current_org_id(request):
 
 
 def org_map(session):
-    return {org.id: {'id': org.id, 'name': org.name, 'card_color': org.card_color} for org in Organization.objects.all()}
+    return {
+        org.id: {
+            'id': org.id, 'name': org.name, 'card_color': org.card_color,
+            'status': org.status,
+        }
+        for org in Organization.objects.all()
+    }
 
 
 def current_org(request):
@@ -216,7 +235,9 @@ def visible_records(request, records):
 
 def visible_issue_queryset(request):
     queryset = IssueReport.objects.all()
-    if not is_system_admin(request):
+    if is_system_admin(request):
+        queryset = queryset.filter(escalated_at__isnull=False)
+    else:
         queryset = queryset.filter(machine__organization_id=current_org_id(request))
     return queryset
 
@@ -293,6 +314,14 @@ def dashboard_chart_payload(machines, history):
             'id': machine_name,
             'name': machine_name,
             'color': palette[index % len(palette)],
+            'organizationId': next(
+                (m.get('organization_id') for m in machines if m['name'] == machine_name),
+                '',
+            ),
+            'organizationName': next(
+                (m.get('organization_name', '-') for m in machines if m['name'] == machine_name),
+                '-',
+            ),
             'valuesByType': values_by_type,
         })
 
@@ -302,6 +331,16 @@ def dashboard_chart_payload(machines, history):
         'wasteTypes': ['All'] + waste_types,
         'series': series,
         'defaultRange': '7d',
+        'organizations': [
+            {'id': org['id'], 'name': org['name']}
+            for org in {
+                m.get('organization_id'): {
+                    'id': m.get('organization_id'),
+                    'name': m.get('organization_name', '-'),
+                }
+                for m in machines if m.get('organization_id')
+            }.values()
+        ],
     }
 
 def render_admin(request, template_name, context):
@@ -381,7 +420,7 @@ def login_view(request):
     if request.session.get('logged_in'):
         return redirect('dashboard')
 
-    error = None
+    error = 'หน่วยงานนี้ถูกระงับ กรุณาติดต่อผู้ดูแลระบบ' if request.GET.get('suspended') == '1' else None
     organizations = Organization.objects.all().order_by('name')
     if request.method == 'POST':
         email = request.POST.get('email', '').strip()
@@ -393,6 +432,12 @@ def login_view(request):
             error = 'บัญชีนี้ถูกระงับ กรุณาติดต่อผู้ดูแลระบบ'
         elif user.status == User.Status.PENDING:
             error = 'บัญชีนี้ยังไม่ได้รับการอนุมัติ'
+        elif (
+            user.role != User.Role.SUPER_ADMIN
+            and user.organization
+            and user.organization.status == Organization.Status.SUSPENDED
+        ):
+            error = 'หน่วยงานนี้ถูกระงับ กรุณาติดต่อผู้ดูแลระบบ'
         elif user.role not in (User.Role.SUPER_ADMIN, User.Role.ORGANIZATION_ADMIN):
             error = 'บัญชีนี้ไม่มีสิทธิ์เข้าสู่ระบบแอดมิน'
         else:
@@ -418,13 +463,14 @@ def logout_view(request):
 
 @login_required
 def dashboard(request):
-    machines = visible_records(request, get_machines(request.session))
+    machines = enrich_with_org(request.session, visible_records(request, get_machines(request.session)))
     users = visible_records(request, get_users(request.session))
     issues = visible_records(request, get_issues(request.session))
+    if is_system_admin(request):
+        issues = [issue for issue in issues if issue.get('escalated')]
     history = visible_records(request, get_collection_history())
 
     online_count = sum(1 for m in machines if m['status'] == 'Online')
-    active_users = sum(1 for u in users if u['status'] == 'Active')
     new_issues = sum(1 for i in issues if i['status'] == 'Waiting')
     today_weight = sum(
         h['weight'] for h in history
@@ -441,20 +487,21 @@ def dashboard(request):
         {'label': 'Sun', 'value': 45},
     ]
 
+    # Use the same collection rows as the report page.  The previous chart used
+    # current bin weights, so its total represented a different data set and did
+    # not match the report summary.
     waste_distribution = []
     for waste_type, thai_name, color in [
-        ('plastic', 'พลาสติก', '#3b82f6'), ('glass', 'แก้ว', '#22c55e'),
-        ('can', 'กระป๋อง', '#f97316'),
+        ('Plastic', 'พลาสติก', '#22c55e'), ('Glass', 'แก้ว', '#3b82f6'),
+        ('Can', 'กระป๋อง', '#f97316'),
     ]:
-        total = sum(bin.current_weight_kg for bin in MachineBin.objects.filter(
-            waste_type=waste_type, machine__organization_id__in=[m['organization_id'] for m in machines]
-        ))
-        waste_distribution.append({'label': thai_name, 'value': float(total), 'color': color})
+        total = sum(row['weight'] for row in history if row['type'] == waste_type)
+        waste_distribution.append({'label': thai_name, 'value': round(total, 2), 'color': color})
     return render_admin(request, 'core/dashboard.html', {
         'active_tab': 'dashboard',
         'online_count': online_count,
         'total_machines': len(machines),
-        'active_users': active_users,
+        'total_users': len(users),
         'new_issues': new_issues,
         'today_weight': today_weight,
         'chart_data': chart_data,
@@ -482,11 +529,18 @@ def organizations_view(request):
         key=lambda org: (org['created_at'], org['id']),
         reverse=True,
     )
+    all_orgs = list(orgs)
+    search = request.GET.get('search', '').strip()
+    status_filter = request.GET.get('status', 'All')
+    if search:
+        orgs = [org for org in orgs if search.casefold() in org['name'].casefold()]
+    if status_filter != 'All':
+        orgs = [org for org in orgs if org.get('status') == status_filter]
 
     toast = request.session.pop('toast', None)
     organization_colors = [
         {'id': org['id'], 'name': org['name'], 'color': org['card_color'].lower()}
-        for org in orgs
+        for org in all_orgs
     ]
     organizations_pagination = paginate_admin(request, orgs)
     return render_admin(request, 'core/organizations.html', {
@@ -495,6 +549,8 @@ def organizations_view(request):
         'organizations_pagination': organizations_pagination,
         'organization_colors': organization_colors,
         'suggested_color': next_available_organization_color(),
+        'search': search,
+        'status_filter': status_filter,
         'toast': toast,
     })
 
@@ -558,11 +614,52 @@ def organization_edit(request):
 
 
 @login_required
+@require_POST
+def organization_toggle_status(request):
+    if not is_system_admin(request):
+        return deny_org_admin(request)
+    organization = Organization.objects.filter(pk=request.POST.get('id')).first()
+    if not organization:
+        request.session['toast'] = {
+            'type': 'error', 'title': 'ไม่พบข้อมูล',
+            'message': 'ไม่พบหน่วยงานที่ต้องการเปลี่ยนสถานะ',
+        }
+        return redirect('organizations')
+
+    if organization.status == Organization.Status.ACTIVE:
+        organization.status = Organization.Status.SUSPENDED
+        organization.save(update_fields=['status'])
+        now = timezone.now()
+        ApiToken.objects.filter(
+            user__organization=organization,
+            revoked_at__isnull=True,
+        ).update(revoked_at=now)
+        for machine in Machine.objects.filter(organization=organization):
+            if machine.status == Machine.Status.ONLINE:
+                machine.status = Machine.Status.OFFLINE
+                machine.last_updated_at = now
+                machine.save(update_fields=['status', 'last_updated_at'])
+            api.enqueue_machine_command(machine, MachineCommand.Command.STOP)
+        message = 'ระงับหน่วยงานแล้ว ผู้ใช้งานในหน่วยงานนี้จะไม่สามารถเข้าใช้งานระบบได้'
+    else:
+        organization.status = Organization.Status.ACTIVE
+        organization.save(update_fields=['status'])
+        message = 'เปิดใช้งานหน่วยงานแล้ว'
+    request.session['toast'] = {
+        'type': 'success', 'title': 'บันทึกแล้ว', 'message': message,
+    }
+    return redirect('organizations')
+
+
+@login_required
 def machines_view(request):
     machines = enrich_with_org(request.session, visible_records(request, get_machines(request.session)))
     search = request.GET.get('search', '')
     status_filter = request.GET.get('status', 'All')
     organization_filter = request.GET.get('organization', 'All')
+    show_suspended = is_system_admin(request) and request.GET.get('show_suspended') == '1'
+    if not show_suspended:
+        machines = [m for m in machines if m['status'] != Machine.Status.SUSPENDED]
 
     filtered = [
         m for m in machines
@@ -609,6 +706,7 @@ def machines_view(request):
                 'machine_id': assigned_machine.id if assigned_machine else '',
                 'machine_code': assigned_machine.code if assigned_machine else '',
                 'machine_name': assigned_machine.name if assigned_machine else '',
+                'api_key': device.get_api_key(),
             }
             device_rows.append(row)
             if not assigned_machine and device.hardware_status == MachineInformation.HardwareStatus.AVAILABLE:
@@ -647,6 +745,7 @@ def machines_view(request):
         'search': search,
         'status_filter': status_filter,
         'organization_filter': organization_filter,
+        'show_suspended': show_suspended,
         'device_rows': device_rows,
         'device_rows_page': devices_pagination['items'],
         'devices_pagination': devices_pagination,
@@ -679,8 +778,8 @@ def device_add(request):
     elif provided_api_key and len(provided_api_key) < 8:
         request.session['toast'] = {
             'type': 'error',
-            'title': 'API Key สั้นเกินไป',
-            'message': 'API Key ต้องมีอย่างน้อย 8 ตัวอักษร หรือเว้นว่างเพื่อให้ระบบสร้างอัตโนมัติ',
+            'title': 'รหัสเชื่อมต่อสั้นเกินไป',
+            'message': 'รหัสเชื่อมต่อต้องมีอย่างน้อย 8 ตัวอักษร หรือเว้นว่างเพื่อให้ระบบสร้างอัตโนมัติ',
         }
     elif MachineInformation.objects.filter(pk=serial_number).exists():
         request.session['toast'] = {
@@ -704,7 +803,7 @@ def device_add(request):
         request.session['toast'] = {
             'type': 'success',
             'title': 'เตรียมอุปกรณ์แล้ว',
-            'message': 'ลงทะเบียน Serial Number และสร้าง API Key เรียบร้อยแล้ว',
+            'message': 'ลงทะเบียนหมายเลขประจำอุปกรณ์และสร้างรหัสเชื่อมต่อเรียบร้อยแล้ว',
         }
     return redirect('/machines/?devices=1')
 
@@ -720,15 +819,15 @@ def device_regenerate_key(request):
     if device:
         raw_api_key = secrets.token_urlsafe(24)
         device.set_api_key(raw_api_key)
-        device.save(update_fields=['api_key_hash'])
+        device.save(update_fields=['api_key_hash', 'api_key_ciphertext'])
         request.session['device_credentials'] = {
             'serial_number': device.serial_number,
             'api_key': raw_api_key,
         }
         request.session['toast'] = {
             'type': 'success',
-            'title': 'สร้าง API Key ใหม่แล้ว',
-            'message': 'API Key เดิมจะไม่สามารถใช้งานได้อีก',
+            'title': 'สร้างรหัสเชื่อมต่อใหม่แล้ว',
+            'message': 'รหัสเชื่อมต่อเดิมจะไม่สามารถใช้งานได้อีก',
         }
     return redirect('/machines/?devices=1')
 
@@ -943,6 +1042,24 @@ def machine_toggle(request):
     with transaction.atomic():
         machine = Machine.objects.select_for_update().filter(pk=mid).first()
         if machine and (allowed_orgs is None or machine.organization_id in allowed_orgs):
+            if machine.status == Machine.Status.SUSPENDED:
+                request.session['toast'] = {
+                    'type': 'error', 'title': 'เครื่องถูกระงับ',
+                    'message': 'กรุณาเปิดใช้งานเครื่องก่อนส่งคำสั่งเปิดหรือปิด',
+                }
+                return redirect('machines')
+            if (
+                machine.status != Machine.Status.ONLINE
+                and machine.bins.filter(
+                    current_level_percent__gte=F('full_threshold_percent'),
+                ).exists()
+            ):
+                request.session['toast'] = {
+                    'type': 'error',
+                    'title': 'ยังเปิดเครื่องไม่ได้',
+                    'message': 'มีถังเต็มอยู่ กรุณาเก็บขยะและรีเซ็ตถังก่อนเปิดเครื่อง',
+                }
+                return redirect('machines')
             machine.status = Machine.Status.OFFLINE if machine.status == Machine.Status.ONLINE else Machine.Status.ONLINE
             changed_at = timezone.now()
             machine.telemetry_paused_at = None
@@ -965,6 +1082,34 @@ def machine_toggle(request):
                 'message': f'{action_text} {machine.code} แล้ว รออุปกรณ์ตอบรับคำสั่ง',
             }
     return redirect('machines')
+
+
+@login_required
+@require_POST
+def machine_toggle_suspension(request):
+    if not is_system_admin(request):
+        return deny_org_admin(request)
+    with transaction.atomic():
+        machine = Machine.objects.select_for_update().filter(pk=request.POST.get('id')).first()
+        if not machine:
+            request.session['toast'] = {
+                'type': 'error', 'title': 'ไม่พบข้อมูล', 'message': 'ไม่พบเครื่องที่เลือก',
+            }
+            return redirect('machines')
+        if machine.status == Machine.Status.SUSPENDED:
+            machine.status = Machine.Status.OFFLINE
+            message = 'เปิดใช้งานเครื่องแล้ว เครื่องจะอยู่ในสถานะออฟไลน์เพื่อความปลอดภัย'
+        else:
+            machine.status = Machine.Status.SUSPENDED
+            api.enqueue_machine_command(machine, MachineCommand.Command.STOP)
+            message = 'ระงับการใช้งานเครื่องแล้ว'
+        machine.telemetry_paused_at = None
+        machine.last_updated_at = timezone.now()
+        machine.save(update_fields=['status', 'telemetry_paused_at', 'last_updated_at'])
+    request.session['toast'] = {
+        'type': 'success', 'title': 'บันทึกแล้ว', 'message': message,
+    }
+    return redirect('/machines/?show_suspended=1')
 
 
 @login_required
@@ -1142,6 +1287,9 @@ def issues_view(request):
     active_tab = request.GET.get('tab', 'Waiting')
     organization_filter = request.GET.get('organization', 'All')
 
+    if is_system_admin(request):
+        issues = [issue for issue in issues if issue.get('escalated')]
+
     if is_system_admin(request) and organization_filter != 'All':
         issues = [i for i in issues if i.get('organization_id') == organization_filter]
 
@@ -1176,11 +1324,41 @@ def issue_next_status(request):
     allowed_orgs = None if is_system_admin(request) else {current_org_id(request)}
 
     issue = IssueReport.objects.select_related('machine').filter(pk=iid).first()
-    if issue and issue.status in status_map and (allowed_orgs is None or issue.machine.organization_id in allowed_orgs):
+    can_manage = bool(issue) and (
+        (is_system_admin(request) and issue.escalated_at is not None)
+        or (not is_system_admin(request) and issue.machine.organization_id in allowed_orgs)
+    )
+    if issue and issue.status in status_map and can_manage:
         issue.status = status_map[issue.status]
         issue.save(update_fields=['status', 'updated_at'])
         request.session['toast'] = {'type': 'success', 'title': 'บันทึกแล้ว', 'message': 'เปลี่ยนสถานะแจ้งซ่อมแล้ว'}
     return redirect(f'/issues/?tab={tab}')
+
+
+@login_required
+@require_POST
+def issue_escalate(request):
+    if is_system_admin(request):
+        return deny_org_admin(request)
+    issue = IssueReport.objects.select_related('machine').filter(
+        pk=request.POST.get('id'),
+        machine__organization_id=current_org_id(request),
+    ).first()
+    if not issue or issue.status == IssueReport.Status.COMPLETED:
+        request.session['toast'] = {
+            'type': 'error', 'title': 'ส่งเรื่องไม่ได้',
+            'message': 'ไม่พบรายการหรือรายการนี้ดำเนินการเสร็จแล้ว',
+        }
+    else:
+        issue.status = IssueReport.Status.WAITING
+        issue.escalated_at = timezone.now()
+        issue.escalated_by_id = request.session.get('user_id')
+        issue.save(update_fields=['status', 'escalated_at', 'escalated_by', 'updated_at'])
+        request.session['toast'] = {
+            'type': 'success', 'title': 'ส่งเรื่องแล้ว',
+            'message': 'ส่งเรื่องให้แอดมินสูงสุดแล้ว และปรับสถานะเป็นรอดำเนินการ',
+        }
+    return redirect('/issues/?tab=Waiting')
 
 
 @login_required

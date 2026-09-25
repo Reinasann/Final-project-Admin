@@ -15,18 +15,18 @@
   }
 </style>
 <div class="p-6">
-  <div class="flex flex-col md:flex-row justify-between items-center mb-6 gap-4">
-    <div><h1 class="text-2xl font-bold text-gray-800">จัดการเครื่อง</h1>{% if current_org %}<p class="text-gray-500">{{ current_org.name }}</p>{% else %}<p class="text-gray-500">แอดมินสูงสุดเพิ่มเครื่องและกำหนดหน่วยงาน</p>{% endif %}</div>
-    <div class="flex flex-wrap gap-2">
+  <div class="relative flex flex-col items-center gap-4 mb-6 md:min-h-10 md:justify-center">
+    <h1 class="text-center text-2xl font-bold text-gray-800">จัดการเครื่อง</h1>
+    <div class="flex flex-wrap gap-2 md:absolute md:right-0">
       <button type="button" onclick="openOverviewMapModal()" class="flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-2 text-emerald-700 hover:bg-emerald-100"><i data-lucide="map" class="h-4 w-4"></i>เปิดแผนที่</button>
-      {% if is_system_admin %}<button onclick="document.getElementById('device-panel').classList.toggle('hidden')" class="flex items-center gap-2 px-4 py-2 rounded-lg border border-blue-200 bg-blue-50 text-blue-700"><i data-lucide="cpu" class="w-4 h-4"></i>จัดการ Serial Number</button><button onclick="document.getElementById('add-form').classList.toggle('hidden')" class="flex items-center gap-2 px-4 py-2 text-white rounded-lg accent-bg"><i data-lucide="plus" class="w-4 h-4"></i>เพิ่มเครื่อง</button>{% endif %}
+      {% if is_system_admin %}<a href="?devices=1" class="flex items-center gap-2 px-4 py-2 rounded-lg border border-blue-200 bg-blue-50 text-blue-700"><i data-lucide="cpu" class="w-4 h-4"></i>จัดการหมายเลขประจำอุปกรณ์</a><button type="button" onclick="openAdminModal('add-form')" class="flex items-center gap-2 px-4 py-2 text-white rounded-lg accent-bg"><i data-lucide="plus" class="w-4 h-4"></i>เพิ่มเครื่อง</button>{% endif %}
     </div>
   </div>
 
   {% if is_system_admin and device_credentials %}
   <div class="mb-6 rounded-xl border border-amber-300 bg-amber-50 p-4">
     <div class="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-      <div><div class="flex items-center gap-2 font-bold text-amber-900"><i data-lucide="key-round" class="h-5 w-5"></i>ข้อมูลสำหรับตั้งค่า ESP32 - แสดงครั้งเดียว</div><p class="mt-1 text-xs text-amber-700">คัดลอก API Key เก็บไว้ก่อนออกจากหน้านี้ ระบบจัดเก็บเฉพาะค่าที่เข้ารหัส</p></div>
+      <div><div class="flex items-center gap-2 font-bold text-amber-900"><i data-lucide="key-round" class="h-5 w-5"></i>ข้อมูลสำหรับตั้งค่า ESP32</div><p class="mt-1 text-xs text-amber-700">ระบบจัดเก็บรหัสเชื่อมต่อแบบเข้ารหัส และแอดมินสูงสุดสามารถเปิดดูได้ในหน้าจัดการหมายเลขประจำอุปกรณ์</p></div>
       <button type="button" onclick="copyDeviceKey()" class="flex items-center justify-center gap-2 rounded-lg bg-amber-600 px-3 py-2 text-sm font-medium text-white"><i data-lucide="copy" class="h-4 w-4"></i>คัดลอก</button>
     </div>
     <div class="mt-3 grid gap-2 text-sm md:grid-cols-2"><div class="rounded-lg bg-white p-3"><span class="text-xs text-gray-500">Serial Number</span><div id="created-device-serial" class="mt-1 font-mono font-bold">{{ device_credentials.serial_number }}</div></div><div class="rounded-lg bg-white p-3"><span class="text-xs text-gray-500">X-Device-Key</span><div id="created-device-key" class="mt-1 break-all font-mono font-bold">{{ device_credentials.api_key }}</div></div></div>
@@ -34,29 +34,30 @@
   {% endif %}
 
   {% if is_system_admin %}
-  <section id="device-panel" class="{% if not show_devices %}hidden {% endif %}mb-6 overflow-hidden rounded-xl border border-blue-200 bg-white shadow-sm">
-    <div class="border-b border-blue-100 bg-blue-50 p-4"><h2 class="flex items-center gap-2 text-lg font-bold text-blue-900"><i data-lucide="cpu" class="h-5 w-5"></i>เตรียม Serial Number ของอุปกรณ์</h2><p class="mt-1 text-sm text-blue-700">ลงทะเบียน ESP32 และ API Key ไว้ก่อน จากนั้นจึงเลือก Serial Number ตอนเพิ่มเครื่อง</p></div>
+  <section id="device-panel" class="{% if not show_devices %}hidden {% endif %}fixed inset-0 z-[70] overflow-y-auto bg-black/50 p-4 backdrop-blur-sm" onclick="if(event.target===this)closeAdminModal('device-panel')">
+   <div class="mx-auto my-6 max-w-7xl overflow-hidden rounded-2xl border border-blue-200 bg-white shadow-2xl" onclick="event.stopPropagation()">
+    <div class="flex items-center justify-between border-b border-blue-100 bg-blue-50 p-4"><h2 class="flex items-center gap-2 text-lg font-bold text-blue-900"><i data-lucide="cpu" class="h-5 w-5"></i>จัดการหมายเลขประจำอุปกรณ์</h2><button type="button" onclick="closeAdminModal('device-panel')" aria-label="ปิด" class="rounded-lg p-2 text-blue-700 hover:bg-blue-100"><i data-lucide="x" class="h-5 w-5"></i></button></div>
     <div class="p-4">
       <form id="form-add-device" method="post" action="/machines/devices/add/" class="grid grid-cols-1 items-end gap-3 md:grid-cols-5">{% csrf_token %}
-        <div><label class="text-xs font-bold text-gray-600">SERIAL NUMBER</label><input name="serial_number" required maxlength="30" pattern="[A-Za-z0-9._-]{3,30}" placeholder="ESP32-SR-005" class="mt-1 w-full rounded-lg border p-2 font-mono uppercase"/></div>
+        <div><label class="text-xs font-bold text-gray-600">หมายเลขประจำอุปกรณ์</label><input name="serial_number" required maxlength="30" pattern="[A-Za-z0-9._-]{3,30}" placeholder="ESP32-SR-005" class="mt-1 w-full rounded-lg border p-2 font-mono uppercase"/></div>
         <div><label class="text-xs font-bold text-gray-600">รุ่นอุปกรณ์</label><input name="model" value="ESP32" maxlength="50" class="mt-1 w-full rounded-lg border p-2"/></div>
-        <div><label class="text-xs font-bold text-gray-600">Firmware</label><input name="firmware_version" placeholder="เช่น 1.0.0" maxlength="50" class="mt-1 w-full rounded-lg border p-2"/></div>
-        <div><label class="text-xs font-bold text-gray-600">API Key (ไม่กรอกจะสร้างอัตโนมัติ)</label><div class="relative mt-1"><input id="new-device-api-key" type="password" name="api_key" minlength="8" class="w-full rounded-lg border p-2 pr-10 font-mono"/><button type="button" onclick="toggleDeviceKeyInput()" class="absolute right-2 top-1/2 -translate-y-1/2 text-gray-500" title="แสดง/ซ่อน API Key"><i data-lucide="eye" class="h-4 w-4"></i></button></div></div>
+        <div><label class="text-xs font-bold text-gray-600">เฟิร์มแวร์</label><input name="firmware_version" placeholder="เช่น 1.0.0" maxlength="50" class="mt-1 w-full rounded-lg border p-2"/></div>
+        <div><label class="text-xs font-bold text-gray-600">รหัสเชื่อมต่อ (ไม่กรอกจะสร้างอัตโนมัติ)</label><div class="relative mt-1"><input id="new-device-api-key" type="password" name="api_key" minlength="8" class="w-full rounded-lg border p-2 pr-10 font-mono"/><button type="button" onclick="toggleDeviceKeyInput()" class="absolute right-2 top-1/2 -translate-y-1/2 text-gray-500" title="แสดงหรือซ่อนรหัสเชื่อมต่อ"><i data-lucide="eye" class="h-4 w-4"></i></button></div></div>
         <button type="button" onclick="showConfirm('ยืนยัน Serial Number','ลงทะเบียน Serial Number และเตรียม API Key นี้หรือไม่?','form-add-device')" class="h-10 rounded-lg bg-blue-600 px-4 text-sm font-medium text-white hover:bg-blue-700">ลงทะเบียนอุปกรณ์</button>
       </form>
     </div>
-    <div class="overflow-x-auto border-t border-gray-100"><table class="w-full text-left text-sm"><thead class="bg-gray-50 text-xs text-gray-500"><tr><th class="p-3">Serial Number</th><th class="p-3">รุ่น / Firmware</th><th class="p-3">สถานะ</th><th class="p-3">เครื่องที่ผูก</th><th class="p-3 text-right">จัดการ</th></tr></thead><tbody class="divide-y divide-gray-100">{% for device in device_rows_page %}<tr><td class="p-3 font-mono font-semibold">{{ device.serial_number }}</td><td class="p-3">{{ device.model }}<div class="text-xs text-gray-400">Firmware {{ device.firmware_version }}</div></td><td class="p-3"><span class="rounded-full px-2 py-1 text-xs font-semibold {% if device.hardware_status == 'Available' %}bg-green-100 text-green-700{% elif device.hardware_status == 'Installed' %}bg-blue-100 text-blue-700{% else %}bg-amber-100 text-amber-700{% endif %}">{{ device.status_th }}</span></td><td class="p-3">{% if device.machine_id %}<span class="font-medium">{{ device.machine_code }}</span><div class="text-xs text-gray-400">{{ device.machine_name }}</div>{% else %}<span class="text-green-600">พร้อมเลือกตอนเพิ่มเครื่อง</span>{% endif %}</td><td class="p-3"><div class="flex justify-end gap-2"><form id="reset-key-{{ forloop.counter }}" method="post" action="/machines/devices/regenerate-key/">{% csrf_token %}<input type="hidden" name="serial_number" value="{{ device.serial_number }}"/></form><button type="button" onclick="showConfirm('สร้าง API Key ใหม่','API Key เดิมของ {{ device.serial_number }} จะใช้งานไม่ได้ ต้องการดำเนินการหรือไม่?','reset-key-{{ forloop.counter }}')" class="rounded-lg bg-amber-50 px-2 py-1 text-xs font-medium text-amber-700">สร้าง Key ใหม่</button>{% if not device.machine_id %}<form id="delete-device-{{ forloop.counter }}" method="post" action="/machines/devices/delete/">{% csrf_token %}<input type="hidden" name="serial_number" value="{{ device.serial_number }}"/></form><button type="button" onclick="showConfirm('ลบ Serial Number','ต้องการลบ {{ device.serial_number }} หรือไม่?','delete-device-{{ forloop.counter }}')" class="rounded-lg bg-red-50 px-2 py-1 text-xs font-medium text-red-700">ลบ</button>{% endif %}</div></td></tr>{% empty %}<tr><td colspan="5" class="p-8 text-center text-gray-400">ยังไม่มี Serial Number ที่ลงทะเบียน</td></tr>{% endfor %}</tbody></table></div>
+    <div class="overflow-x-auto border-t border-gray-100"><table class="w-full text-left text-sm"><thead class="bg-gray-50 text-sm font-bold text-gray-700"><tr><th class="p-3">Serial Number</th><th class="p-3">รุ่น / เฟิร์มแวร์</th><th class="p-3">สถานะ</th><th class="p-3">เครื่องที่ใช้งาน</th><th class="p-3">Key</th><th class="p-3 text-right">จัดการ</th></tr></thead><tbody class="divide-y divide-gray-100">{% for device in device_rows_page %}<tr><td class="p-3 font-mono font-semibold">{{ device.serial_number }}</td><td class="p-3">{{ device.model }}<div class="text-xs text-gray-400">เฟิร์มแวร์ {{ device.firmware_version }}</div></td><td class="p-3"><span class="rounded-full px-2 py-1 text-xs font-semibold {% if device.hardware_status == 'Available' %}bg-green-100 text-green-700{% elif device.hardware_status == 'Installed' %}bg-blue-100 text-blue-700{% else %}bg-amber-100 text-amber-700{% endif %}">{{ device.status_th }}</span></td><td class="p-3">{% if device.machine_id %}<span class="font-medium">{{ device.machine_code }}</span><div class="text-xs text-gray-400">{{ device.machine_name }}</div>{% else %}<span class="text-green-600">พร้อมเลือกตอนเพิ่มเครื่อง</span>{% endif %}</td><td class="p-3">{% if device.api_key %}<div class="flex min-w-[210px] items-center gap-2"><input id="device-key-{{ forloop.counter }}" type="password" readonly value="{{ device.api_key }}" class="min-w-0 flex-1 rounded border bg-gray-50 px-2 py-1 font-mono text-xs"/><button type="button" onclick="toggleStoredDeviceKey('device-key-{{ forloop.counter }}',this)" class="rounded bg-blue-50 px-2 py-1 text-xs text-blue-700">ดู Key</button></div>{% else %}<span class="text-xs text-amber-700">กรุณาสร้าง Key ใหม่หนึ่งครั้ง</span>{% endif %}</td><td class="p-3"><div class="flex justify-end gap-2"><form id="reset-key-{{ forloop.counter }}" method="post" action="/machines/devices/regenerate-key/">{% csrf_token %}<input type="hidden" name="serial_number" value="{{ device.serial_number }}"/></form><button type="button" onclick="showConfirm('สร้าง Key ใหม่','Key เดิมของ {{ device.serial_number }} จะใช้งานไม่ได้ ต้องการดำเนินการหรือไม่?','reset-key-{{ forloop.counter }}')" class="rounded-lg bg-amber-50 px-2 py-1 text-xs font-medium text-amber-700">สร้าง Key ใหม่</button>{% if not device.machine_id %}<form id="delete-device-{{ forloop.counter }}" method="post" action="/machines/devices/delete/">{% csrf_token %}<input type="hidden" name="serial_number" value="{{ device.serial_number }}"/></form><button type="button" onclick="showConfirm('ลบ Serial Number','ต้องการลบ {{ device.serial_number }} หรือไม่?','delete-device-{{ forloop.counter }}')" class="rounded-lg bg-red-50 px-2 py-1 text-xs font-medium text-red-700">ลบ</button>{% endif %}</div></td></tr>{% empty %}<tr><td colspan="6" class="p-8 text-center text-gray-400">ยังไม่มี Serial Number ที่ลงทะเบียน</td></tr>{% endfor %}</tbody></table></div>
     {% include "core/_pagination.html" with pagination=devices_pagination %}
+   </div>
   </section>
   {% endif %}
 
   <form method="get" class="flex flex-wrap gap-3 mb-6 bg-white p-3 rounded-xl border border-gray-200">
     <input type="hidden" name="page_size" value="{{ machines_pagination.page_size }}"/>
     <input type="hidden" name="device_page_size" value="{{ devices_pagination.page_size }}"/>
-    {% if show_devices %}<input type="hidden" name="devices" value="1"/>{% endif %}
     <div class="relative flex-1 min-w-[220px]"><i data-lucide="search" class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 w-4 h-4"></i><input type="text" name="search" value="{{ search }}" placeholder="ค้นหาชื่อเครื่องหรือรหัสเครื่อง" class="w-full pl-10 pr-4 py-2 rounded-lg border border-gray-200 outline-none"/></div>
     <select name="status" onchange="this.form.requestSubmit()" class="px-4 py-2 border border-gray-200 rounded-lg bg-gray-50 text-sm"><option value="All" {% if status_filter == 'All' %}selected{% endif %}>ทุกสถานะ</option><option value="Online" {% if status_filter == 'Online' %}selected{% endif %}>เปิดใช้งาน</option><option value="Offline" {% if status_filter == 'Offline' %}selected{% endif %}>ปิดใช้งาน</option></select>
-    {% if is_system_admin %}<select name="organization" onchange="this.form.requestSubmit()" class="px-4 py-2 border border-gray-200 rounded-lg bg-gray-50 text-sm"><option value="All">ทุกหน่วยงาน</option>{% for org in organizations %}<option value="{{ org.id }}" {% if organization_filter == org.id %}selected{% endif %}>{{ org.name }}</option>{% endfor %}</select>{% endif %}
+    {% if is_system_admin %}<select name="organization" onchange="this.form.requestSubmit()" class="px-4 py-2 border border-gray-200 rounded-lg bg-gray-50 text-sm"><option value="All">ทุกหน่วยงาน</option>{% for org in organizations %}<option value="{{ org.id }}" {% if organization_filter == org.id %}selected{% endif %}>{{ org.name }}</option>{% endfor %}</select><label class="flex items-center gap-2 rounded-lg border border-gray-200 px-3 py-2 text-sm"><input type="checkbox" name="show_suspended" value="1" onchange="this.form.requestSubmit()" {% if show_suspended %}checked{% endif %}/>แสดงเครื่องที่ถูกระงับ</label>{% endif %}
     <button type="submit" class="px-4 py-2 accent-soft rounded-lg text-sm font-medium">ค้นหา</button>
   </form>
 
@@ -96,10 +97,12 @@
   </div>
 
   {% if is_system_admin %}
-  <div id="add-form" class="hidden mb-6 bg-blue-50 border border-blue-200 p-4 rounded-xl">
-    <form id="form-add-machine" method="post" action="/machines/add/" class="grid grid-cols-1 gap-4 md:grid-cols-5 md:items-start">
+  <div id="add-form" class="hidden fixed inset-0 z-[70] overflow-y-auto bg-black/50 p-4 backdrop-blur-sm" onclick="if(event.target===this)closeAdminModal('add-form')">
+   <section class="mx-auto my-10 max-w-3xl overflow-hidden rounded-2xl border border-blue-200 bg-white shadow-2xl" onclick="event.stopPropagation()">
+    <div class="flex items-center justify-between border-b border-blue-100 bg-blue-50 p-4"><h2 class="text-lg font-bold text-blue-900">เพิ่มเครื่อง</h2><button type="button" onclick="closeAdminModal('add-form')" aria-label="ปิด" class="rounded-lg p-2 text-blue-700 hover:bg-blue-100"><i data-lucide="x" class="h-5 w-5"></i></button></div>
+    <form id="form-add-machine" method="post" action="/machines/add/" class="grid grid-cols-1 gap-4 p-5 md:grid-cols-2">
       {% csrf_token %}
-      <div>
+      <div class="md:col-span-2">
         <label class="block text-xs font-bold uppercase text-gray-500">ชื่อเครื่อง</label>
         <input type="text" name="name" required maxlength="100" placeholder="เช่น เครื่องคัดแยกหน้าอาคาร" class="mt-1 h-11 w-full rounded border px-3"/>
         <p class="mt-1 text-xs text-gray-500">ระบบจะสร้างรหัสเครื่องให้อัตโนมัติ</p>
@@ -119,10 +122,10 @@
         <p class="mt-1 text-xs text-gray-400">เลือกได้มากกว่า 1 คน โดยกด Ctrl ค้างไว้ขณะเลือก</p>
       </div>
       <div>
-        <span aria-hidden="true" class="hidden text-xs font-bold uppercase md:block md:invisible">การทำงาน</span>
         <button type="button" onclick="showConfirm('ยืนยันการเพิ่มเครื่อง','บันทึกเครื่องและผูก Serial Number ที่เลือกหรือไม่?','form-add-machine')" class="mt-1 h-11 w-full rounded bg-green-600 px-4 text-white hover:bg-green-700 disabled:cursor-not-allowed disabled:opacity-50" {% if not available_devices %}disabled{% endif %}>บันทึก</button>
       </div>
     </form>
+   </section>
   </div>
   {% endif %}
 
@@ -132,12 +135,12 @@
       <div class="h-2" style="background:{{ m.card_color }}"></div>
       <div class="p-4 border-b border-gray-100 flex justify-between items-start">
         <div><h3 class="font-bold text-lg text-gray-800 group-hover:text-blue-600 transition-colors">{{ m.name }}</h3><p class="text-xs text-gray-500 font-mono bg-gray-100 inline-block px-1 rounded">{{ m.code }}</p>{% if is_system_admin %}<p class="text-xs text-gray-400 mt-1">{{ m.organization_name }}</p><p class="mt-1 flex items-center gap-1 text-xs font-mono {% if m.serial_number %}text-blue-600{% else %}text-red-500{% endif %}"><i data-lucide="cpu" class="h-3 w-3"></i>{{ m.serial_number|default:"ยังไม่ผูก Serial" }}</p>{% endif %}<p class="mt-1 flex items-center gap-1 text-xs {% if m.caretaker_names %}text-gray-600{% else %}text-gray-400{% endif %}"><i data-lucide="users-round" class="h-3.5 w-3.5"></i>ผู้ดูแล: {{ m.caretaker_names|default:"ยังไม่กำหนด" }}</p></div>
-        <span class="px-2 py-1 rounded-full text-xs font-bold {% if m.status == 'Online' %}bg-green-100 text-green-700{% else %}bg-red-100 text-red-700{% endif %}">{% if m.status == 'Online' %}เปิด{% else %}ปิด{% endif %}</span>
+        <span class="px-2 py-1 rounded-full text-xs font-bold {% if m.status == 'Online' %}bg-green-100 text-green-700{% elif m.status == 'Suspended' %}bg-amber-100 text-amber-800{% else %}bg-red-100 text-red-700{% endif %}">{% if m.status == 'Online' %}เปิด{% elif m.status == 'Suspended' %}ระงับ{% else %}ปิด{% endif %}</span>
       </div>
-      <div class="p-4"><p class="text-sm text-gray-600 mb-4 flex items-center gap-1"><i data-lucide="map-pin" class="w-3.5 h-3.5"></i>{{ m.location|default:"ยังไม่ได้ระบุสถานที่" }}</p>{% include "core/_bin_level.html" with label="พลาสติก" level=m.plastic color="bg-blue-500" %}{% include "core/_bin_level.html" with label="แก้ว" level=m.glass color="bg-green-500" %}{% include "core/_bin_level.html" with label="กระป๋อง" level=m.can color="bg-orange-500" %}
+      <div class="p-4"><p class="text-sm text-gray-600 mb-4 flex items-center gap-1"><i data-lucide="map-pin" class="w-3.5 h-3.5"></i>{{ m.location|default:"ยังไม่ได้ระบุสถานที่" }}</p>{% include "core/_bin_level.html" with label="พลาสติก" level=m.plastic color="bg-green-500" %}{% include "core/_bin_level.html" with label="แก้ว" level=m.glass color="bg-blue-500" %}{% include "core/_bin_level.html" with label="กระป๋อง" level=m.can color="bg-orange-500" %}
         <div class="mt-4 flex items-center justify-between gap-3 border-t border-gray-100 pt-4">
           <form id="toggle-{{ m.id }}" method="post" action="/machines/toggle/">{% csrf_token %}<input type="hidden" name="id" value="{{ m.id }}"/></form>
-          <button type="button" onclick="showConfirm('{% if m.status == 'Online' %}ยืนยันการปิดเครื่อง{% else %}ยืนยันการเปิดเครื่อง{% endif %}','ต้องการส่งคำสั่ง{% if m.status == 'Online' %}ปิด{% else %}เปิด{% endif %}เครื่อง {{ m.code }} หรือไม่?','toggle-{{ m.id }}')" title="เปิดหรือปิดเครื่อง" class="relative inline-flex h-7 w-12 items-center rounded-full transition {% if m.status == 'Online' %}bg-green-500{% else %}bg-gray-300{% endif %}"><span class="inline-block h-5 w-5 transform rounded-full bg-white shadow transition {% if m.status == 'Online' %}translate-x-6{% else %}translate-x-1{% endif %}"></span></button>
+          <button type="button" {% if m.status == 'Suspended' %}disabled title="เครื่องถูกระงับ"{% else %}onclick="showConfirm('{% if m.status == 'Online' %}ยืนยันการปิดเครื่อง{% else %}ยืนยันการเปิดเครื่อง{% endif %}','ต้องการส่งคำสั่ง{% if m.status == 'Online' %}ปิด{% else %}เปิด{% endif %}เครื่อง {{ m.code }} หรือไม่?','toggle-{{ m.id }}')" title="เปิดหรือปิดเครื่อง"{% endif %} class="relative inline-flex h-7 w-12 items-center rounded-full transition {% if m.status == 'Online' %}bg-green-500{% elif m.status == 'Suspended' %}cursor-not-allowed bg-amber-300 opacity-60{% else %}bg-gray-300{% endif %}"><span class="inline-block h-5 w-5 transform rounded-full bg-white shadow transition {% if m.status == 'Online' %}translate-x-6{% else %}translate-x-1{% endif %}"></span></button>
           <button type="button" onclick="openDetail('{{ m.id }}','{{ m.code }}','{{ m.name|escapejs }}','{{ m.location|escapejs }}','{{ m.status }}','{{ m.installDate|ddmmyy }}','{{ m.lastUpdate }}','{{ m.latitude }}','{{ m.longitude }}','{{ m.organization_id }}','{{ m.serial_number }}','{{ m.caretaker_ids_csv }}','{{ m.caretaker_names|escapejs }}')" class="flex items-center gap-2 px-3 py-2 rounded-lg accent-soft text-sm font-medium"><i data-lucide="edit" class="w-4 h-4"></i>รายละเอียด/แก้ไข</button>
         </div>
       </div>
@@ -185,7 +188,7 @@
         <p id="map-status" class="mt-2 text-xs text-gray-500"></p>
       </div>
     </div>
-    <div class="p-6 border-t border-gray-100 flex justify-end gap-3 bg-gray-50"><div id="btn-view-mode"><button onclick="switchToEdit()" class="px-4 py-2 accent-soft rounded-lg flex items-center gap-2"><i data-lucide="edit" class="w-4 h-4"></i>แก้ไข</button></div><div id="btn-edit-mode" class="hidden flex gap-3"><button onclick="switchToView()" class="px-4 py-2 text-gray-600 hover:bg-gray-200 rounded-lg">ยกเลิก</button><button type="button" onclick="showConfirm('ยืนยันการแก้ไข','ต้องการบันทึกข้อมูลเครื่องนี้หรือไม่?','form-edit-machine')" class="px-4 py-2 text-white rounded-lg accent-bg">บันทึก</button></div></div>
+    <div class="p-6 border-t border-gray-100 flex flex-wrap justify-end gap-3 bg-gray-50">{% if is_system_admin %}<form id="form-machine-suspension" method="post" action="/machines/toggle-suspension/">{% csrf_token %}<input id="suspension-machine-id" type="hidden" name="id"/></form><button id="btn-machine-suspension" type="button" onclick="confirmMachineSuspension()" class="rounded-lg border border-amber-200 bg-amber-50 px-4 py-2 font-medium text-amber-800">ระงับการใช้งาน</button>{% endif %}<div id="btn-view-mode"><button onclick="switchToEdit()" class="px-4 py-2 accent-soft rounded-lg flex items-center gap-2"><i data-lucide="edit" class="w-4 h-4"></i>แก้ไข</button></div><div id="btn-edit-mode" class="hidden flex gap-3"><button onclick="switchToView()" class="px-4 py-2 text-gray-600 hover:bg-gray-200 rounded-lg">ยกเลิก</button><button type="button" onclick="showConfirm('ยืนยันการแก้ไข','ต้องการบันทึกข้อมูลเครื่องนี้หรือไม่?','form-edit-machine')" class="px-4 py-2 text-white rounded-lg accent-bg">บันทึก</button></div></div>
   </div>
 </div>
 {{ machine_map_data|json_script:"machine-overview-data" }}
@@ -207,6 +210,14 @@ let currentMachine = {};
 let machineMap = null;
 let machineMarker = null;
 let isEditMode = false;
+
+function openAdminModal(id){document.getElementById(id)?.classList.remove('hidden');}
+function closeAdminModal(id){document.getElementById(id)?.classList.add('hidden');}
+function toggleStoredDeviceKey(id,button){const input=document.getElementById(id);const show=input.type==='password';input.type=show?'text':'password';button.textContent=show?'ซ่อน Key':'ดู Key';}
+function confirmMachineSuspension(){
+  const restoring=currentMachine.status==='Suspended';
+  showConfirm(restoring?'ยืนยันการเปิดใช้งานเครื่อง':'ยืนยันการระงับเครื่อง',restoring?'เครื่องจะกลับมาอยู่ในสถานะออฟไลน์':'เครื่องจะหยุดทำงานและผู้ใช้งานจะไม่เห็นเครื่องนี้','form-machine-suspension');
+}
 
 function filterCaretakerOptions(select, organizationId, selectedIds = []) {
   if (!select) return;
@@ -499,8 +510,12 @@ function openDetail(id, code, name, location, status, installDate, lastUpdate, l
   document.getElementById('d-install').textContent = installDate;
   document.getElementById('d-update').textContent = lastUpdate;
   const badge = document.getElementById('d-status-badge');
-  badge.textContent = status === 'Online' ? 'เปิดใช้งาน' : 'ปิดใช้งาน';
-  badge.className = 'px-2 py-1 rounded text-xs font-bold ' + (status === 'Online' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700');
+  badge.textContent = status === 'Online' ? 'เปิดใช้งาน' : (status === 'Suspended' ? 'ระงับการใช้งาน' : 'ปิดใช้งาน');
+  badge.className = 'px-2 py-1 rounded text-xs font-bold ' + (status === 'Online' ? 'bg-green-100 text-green-700' : (status === 'Suspended' ? 'bg-amber-100 text-amber-800' : 'bg-red-100 text-red-700'));
+  const suspensionId=document.getElementById('suspension-machine-id');
+  const suspensionButton=document.getElementById('btn-machine-suspension');
+  if(suspensionId)suspensionId.value=id;
+  if(suspensionButton)suspensionButton.textContent=status==='Suspended'?'เปิดใช้งานเครื่อง':'ระงับการใช้งาน';
   switchToView();
   document.getElementById('detail-modal').classList.remove('hidden');
   setTimeout(() => {
