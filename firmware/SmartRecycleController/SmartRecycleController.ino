@@ -7,6 +7,9 @@
 #include <WiFiManager.h>
 #include <Preferences.h>
 #include <ArduinoJson.h>
+#include <freertos/FreeRTOS.h>
+#include <freertos/queue.h>
+#include <freertos/task.h>
 
 // =====================================================
 // PCA9685
@@ -26,13 +29,15 @@ Adafruit_PWMServoDriver pwm = Adafruit_PWMServoDriver(0x40);
 #define GLASS_SERVO_CH   3
 
 // =====================================================
-// SERVO PWM
+// CONTINUOUS ROTATION SERVO PWM (PCA9685 @ 50 Hz)
+// Servo ทุกตัวเป็นแบบ 360 องศา: ซ้าย / หยุด / ขวา
 // =====================================================
-#define SERVO_STOP   320
 #define SERVO_LEFT   205
+#define SERVO_STOP   320
 #define SERVO_RIGHT  410
+#define SERVO_PWM_FREQUENCY 50
 
-// Servo เคาะ Piezo
+// ระยะเวลาหมุน Servo เคาะ Piezo
 #define SERVO_TURN_TIME 500
 
 // Servo คัดแยก
@@ -45,8 +50,7 @@ Adafruit_PWMServoDriver pwm = Adafruit_PWMServoDriver(0x40);
 // =====================================================
 #define PHOTO_PIN 14
 
-// 0 = ไม่มีวัตถุ
-// 1 = มีวัตถุ
+// NPN: 0 = ไม่มีวัตถุ, 1 = มีวัตถุ
 #define PHOTO_START_DELAY 2000
 
 // =====================================================
@@ -122,6 +126,7 @@ const int STEP_DELAY_US = 1500;
 // =====================================================
 // DOOR
 // =====================================================
+// ใช้ทิศทางเดียวกับโค้ดเดิมที่ทดสอบกับเครื่องจริงแล้ว
 #define DOOR_OPEN_ANGLE  -4320
 #define DOOR_CLOSE_ANGLE  4320
 
@@ -247,7 +252,10 @@ struct SensorData {
 // =====================================================
 // SYSTEM VARIABLES
 // =====================================================
-bool systemRunning = false;
+volatile bool systemRunning = false;
+
+// ป้องกันการส่ง Telemetry ก่อนปิดประตูหลักและ Auto Zero เสร็จ
+volatile bool cloudMachineReady = false;
 
 bool photoTriggered = false;
 
@@ -326,7 +334,7 @@ void stopSortServo(
 
   if (
     channel < 1 ||
-    channel > 3
+    channel > 15
   ) {
 
     return;
@@ -365,6 +373,14 @@ bool moveSortServo(
   int pwmValue,
   unsigned long duration
 ) {
+
+  if (
+    channel < 1 ||
+    channel > 15
+  ) {
+
+    return false;
+  }
 
   pwm.setPWM(
     channel,
@@ -698,9 +714,6 @@ void serviceAllLoadCells() {
   LoadCell.update();
 
   serviceBinLoadCells();
-
-  // ตรวจคำสั่งจาก Django ระหว่างรอเซนเซอร์และมอเตอร์ทำงาน
-  serviceCloud();
 }
 
 // =====================================================
@@ -2550,7 +2563,7 @@ void setup() {
   pwm.begin();
 
   pwm.setPWMFreq(
-    50
+    SERVO_PWM_FREQUENCY
   );
 
   delay(10);
@@ -2726,11 +2739,15 @@ void setup() {
   );
 
   Serial.println(
-    "OPEN  = RIGHT 1 sec"
+    "OPEN  = RIGHT (410) 1 sec"
   );
 
   Serial.println(
-    "CLOSE = LEFT 1 sec"
+    "CLOSE = LEFT (205) 1 sec"
+  );
+
+  Serial.println(
+    "STOP  = NEUTRAL (320)"
   );
 
   Serial.println();
@@ -2761,12 +2778,24 @@ void setup() {
 
   // เริ่ม WiFiManager หลังจากเซนเซอร์และมอเตอร์พร้อมแล้ว
   setupCloud();
+
+  Serial.println("SETUP COMPLETE -> ENTER MAIN LOOP");
 }
 
 // =====================================================
 // LOOP
 // =====================================================
 void loop() {
+
+  static bool loopStarted = false;
+  if (!loopStarted) {
+    loopStarted = true;
+    Serial.println("MAIN LOOP STARTED");
+  }
+
+  // รับเฉพาะคำสั่งฮาร์ดแวร์จาก Queue; งาน HTTPS อยู่บน Core 0
+  // จึงไม่บล็อกการอ่าน Photo Sensor ใน Arduino loop
+  serviceCloud();
 
   // ===================================================
   // UPDATE HX711
@@ -2852,6 +2881,8 @@ void loop() {
     Serial.println("SYSTEM READY");
     Serial.println("รอ Photo Sensor...");
     Serial.println("================================");
+
+    cloudMachineReady = true;
 
     return;
   }

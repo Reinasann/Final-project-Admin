@@ -3,7 +3,8 @@
  *
  * Add this file as a second Arduino IDE tab next to the existing sorting
  * controller sketch. The main sketch must call setupCloud() once in setup(),
- * and serviceCloud() continuously from loop()/serviceAllLoadCells().
+ * and serviceCloud() continuously from loop(). Network I/O runs on Core 0;
+ * serviceCloud() only executes queued hardware commands on the main loop.
  *
  * Required libraries:
  *   - WiFiManager by tzapu (2.0.17 or newer)
@@ -22,11 +23,30 @@ WiFiClientSecure cloudSecureClient;
 char cloudDeviceId[31] = "";
 char cloudDeviceKey[129] = "";
 
-bool cloudBusy = false;
+struct CloudCommandMessage {
+  long commandId;
+  char commandType[16];
+  char wasteType[12];
+};
+
+struct CloudAckMessage {
+  long commandId;
+  bool success;
+  char message[80];
+};
+
+QueueHandle_t cloudCommandQueue = nullptr;
+QueueHandle_t cloudAckQueue = nullptr;
+TaskHandle_t cloudNetworkTaskHandle = nullptr;
+volatile bool cloudCommandInProgress = false;
+
 unsigned long lastTelemetryAt = 0;
 unsigned long lastCommandPollAt = 0;
 unsigned long lastWifiRetryAt = 0;
 unsigned long lastStateReconcileAt = 0;
+int lastReportedDesiredState = -1;
+
+void cloudNetworkTask(void *parameter);
 
 String jsonResponseBody(HTTPClient &http) {
   String body = http.getString();
@@ -102,6 +122,9 @@ bool openCloudConfigurationPortal() {
 }
 
 void resetCloudConfiguration() {
+  if (cloudNetworkTaskHandle != nullptr) {
+    vTaskSuspend(cloudNetworkTaskHandle);
+  }
   WiFiManager wifiManager;
   wifiManager.resetSettings();
   cloudPreferences.begin("smart-recycle", false);
@@ -129,10 +152,36 @@ void setupCloud() {
   Serial.println(WiFi.localIP());
   Serial.print("Device ID: ");
   Serial.println(cloudDeviceId);
+
+  cloudCommandQueue = xQueueCreate(1, sizeof(CloudCommandMessage));
+  cloudAckQueue = xQueueCreate(2, sizeof(CloudAckMessage));
+  if (cloudCommandQueue == nullptr || cloudAckQueue == nullptr) {
+    Serial.println("Cloud queue creation failed");
+    return;
+  }
+
+  // อนุญาตให้คืนสถานะ START/STOP จาก Django ได้ทันทีหลังรีสตาร์ต
+  lastStateReconcileAt = millis() - STATE_RECONCILE_INTERVAL_MS;
+
+  BaseType_t taskCreated = xTaskCreatePinnedToCore(
+    cloudNetworkTask,
+    "smart-recycle-network",
+    8192,
+    nullptr,
+    0,
+    &cloudNetworkTaskHandle,
+    0
+  );
+  if (taskCreated != pdPASS) {
+    Serial.println("Cloud network task creation failed");
+  } else {
+    Serial.println("Cloud network task created on Core 0 (low priority)");
+  }
 }
 
 void stopMachineFromCloud() {
   systemRunning = false;
+  cloudMachineReady = false;
   closeDoorOnStartRequested = false;
   photoTriggered = false;
   metalLatched = false;
@@ -148,6 +197,7 @@ bool startMachineFromCloud() {
   }
 
   systemRunning = true;
+  cloudMachineReady = false;
   closeDoorOnStartRequested = false;
   photoTriggered = false;
   metalLatched = false;
@@ -159,10 +209,17 @@ bool startMachineFromCloud() {
     GLASS_SERVO_CH
   };
   for (int index = 0; index < 3; index++) {
+    Serial.print("START -> CLOSE SORT SERVO CH");
+    Serial.println(channels[index]);
+
     if (!moveSortServo(channels[index], SERVO_LEFT, SORT_SERVO_TIME)) {
       stopMachineFromCloud();
       return false;
     }
+
+    Serial.print("SORT SERVO CH");
+    Serial.print(channels[index]);
+    Serial.println(" = CLOSED");
   }
   lastOpenedServoChannel = -1;
 
@@ -204,16 +261,16 @@ bool resetBinFromCloud(const String &wasteType) {
   return false;
 }
 
-bool applyCloudCommand(const String &commandType, JsonObject payload) {
-  if (commandType == "START") {
+bool applyCloudCommand(const char *commandType, const char *wasteType) {
+  if (strcmp(commandType, "START") == 0) {
     return startMachineFromCloud();
   }
-  if (commandType == "STOP") {
+  if (strcmp(commandType, "STOP") == 0) {
     stopMachineFromCloud();
     return true;
   }
-  if (commandType == "RESET_BIN") {
-    return resetBinFromCloud(payload["waste_type"] | "");
+  if (strcmp(commandType, "RESET_BIN") == 0) {
+    return resetBinFromCloud(String(wasteType));
   }
   return false;
 }
@@ -232,6 +289,7 @@ void acknowledgeCloudCommand(
     return;
   }
 
+  http.setTimeout(3000);
   http.addHeader("Content-Type", "application/json");
   http.addHeader("X-Device-Key", cloudDeviceKey);
   JsonDocument body;
@@ -245,57 +303,96 @@ void acknowledgeCloudCommand(
   Serial.printf("Command ACK %ld -> HTTP %d\n", commandId, statusCode);
 }
 
-void reconcileDesiredMachineState(bool desiredIsOn) {
-  if (desiredIsOn == systemRunning) {
-    return;
+bool queueCloudCommand(
+  long commandId,
+  const char *commandType,
+  const char *wasteType
+) {
+  if (cloudCommandQueue == nullptr || cloudCommandInProgress) {
+    return false;
   }
-  if (millis() - lastStateReconcileAt < STATE_RECONCILE_INTERVAL_MS) {
-    return;
+
+  CloudCommandMessage message = {};
+  message.commandId = commandId;
+  strlcpy(message.commandType, commandType, sizeof(message.commandType));
+  strlcpy(message.wasteType, wasteType, sizeof(message.wasteType));
+
+  cloudCommandInProgress = true;
+  if (xQueueSend(cloudCommandQueue, &message, 0) != pdTRUE) {
+    cloudCommandInProgress = false;
+    return false;
   }
-  lastStateReconcileAt = millis();
-  if (desiredIsOn) {
-    startMachineFromCloud();
-  } else {
-    stopMachineFromCloud();
+
+  // STOP ตัด state ทันทีเพื่อให้ลูปมอเตอร์ที่กำลังทำงานหยุดได้
+  // ส่วนการปิดเอาต์พุตทั้งหมดจะทำบน main loop ผ่าน serviceCloud()
+  if (strcmp(commandType, "STOP") == 0) {
+    systemRunning = false;
+    cloudMachineReady = false;
   }
+  return true;
 }
 
-void pollCloudCommand() {
+bool reconcileDesiredMachineState(bool desiredIsOn) {
+  if (desiredIsOn == systemRunning) {
+    return false;
+  }
+  if (millis() - lastStateReconcileAt < STATE_RECONCILE_INTERVAL_MS) {
+    return false;
+  }
+  lastStateReconcileAt = millis();
+  return queueCloudCommand(
+    0,
+    desiredIsOn ? "START" : "STOP",
+    ""
+  );
+}
+
+bool pollCloudCommand() {
   HTTPClient http;
   String url = String(API_BASE_URL)
     + "/api/v1/iot/commands/?device_id="
     + cloudDeviceId;
   if (!http.begin(cloudSecureClient, url)) {
-    return;
+    return false;
   }
+  http.setTimeout(3000);
   http.addHeader("X-Device-Key", cloudDeviceKey);
   int statusCode = http.GET();
   String response = jsonResponseBody(http);
   if (statusCode != HTTP_CODE_OK) {
     Serial.printf("Command poll failed: HTTP %d\n", statusCode);
-    return;
+    return false;
   }
 
   JsonDocument document;
   if (deserializeJson(document, response)) {
     Serial.println("Command poll returned invalid JSON");
-    return;
+    return false;
   }
 
   JsonVariant command = document["command"];
   if (command.isNull()) {
-    reconcileDesiredMachineState(document["desired_is_on"] | false);
-    return;
+    bool desiredIsOn = document["desired_is_on"] | false;
+    int desiredState = desiredIsOn ? 1 : 0;
+    if (desiredState != lastReportedDesiredState) {
+      lastReportedDesiredState = desiredState;
+      Serial.print("Cloud API connected | Desired state = ");
+      Serial.println(desiredIsOn ? "ON" : "OFF");
+    }
+    return reconcileDesiredMachineState(desiredIsOn);
   }
 
   long commandId = command["id"] | 0;
-  String commandType = command["type"] | "";
-  JsonObject payload = command["payload"].as<JsonObject>();
-  bool success = applyCloudCommand(commandType, payload);
-  acknowledgeCloudCommand(
+  const char *commandType = command["type"] | "";
+  const char *wasteType = command["payload"]["waste_type"] | "";
+  Serial.print("Cloud command received: ");
+  Serial.print(commandType);
+  Serial.print(" #");
+  Serial.println(commandId);
+  return queueCloudCommand(
     commandId,
-    success,
-    success ? "Command completed." : "Command could not be completed."
+    commandType,
+    wasteType
   );
 }
 
@@ -305,6 +402,7 @@ void sendCloudTelemetry() {
   if (!http.begin(cloudSecureClient, url)) {
     return;
   }
+  http.setTimeout(3000);
   http.addHeader("Content-Type", "application/json");
   http.addHeader("X-Device-Key", cloudDeviceKey);
 
@@ -338,29 +436,82 @@ void sendCloudTelemetry() {
 }
 
 void serviceCloud() {
-  if (cloudBusy || !cloudCredentialsReady()) {
+  if (cloudCommandQueue == nullptr || cloudAckQueue == nullptr) {
     return;
   }
 
-  if (WiFi.status() != WL_CONNECTED) {
-    if (millis() - lastWifiRetryAt >= WIFI_RETRY_INTERVAL_MS) {
-      lastWifiRetryAt = millis();
-      WiFi.reconnect();
+  CloudCommandMessage command = {};
+  if (xQueueReceive(cloudCommandQueue, &command, 0) != pdTRUE) {
+    return;
+  }
+
+  bool success = applyCloudCommand(
+    command.commandType,
+    command.wasteType
+  );
+
+  CloudAckMessage acknowledgement = {};
+  acknowledgement.commandId = command.commandId;
+  acknowledgement.success = success;
+  strlcpy(
+    acknowledgement.message,
+    success ? "Command completed." : "Command could not be completed.",
+    sizeof(acknowledgement.message)
+  );
+
+  if (xQueueSend(cloudAckQueue, &acknowledgement, 0) != pdTRUE) {
+    cloudCommandInProgress = false;
+  }
+}
+
+void cloudNetworkTask(void *parameter) {
+  // ให้ setup() และ Arduino loop เริ่มทำงานก่อนเปิด HTTPS
+  vTaskDelay(pdMS_TO_TICKS(3000));
+  Serial.println("Cloud network task running");
+
+  for (;;) {
+    if (!cloudCredentialsReady()) {
+      vTaskDelay(pdMS_TO_TICKS(1000));
+      continue;
     }
-    return;
-  }
 
-  cloudBusy = true;
-  if (millis() - lastCommandPollAt >= COMMAND_POLL_INTERVAL_MS) {
-    lastCommandPollAt = millis();
-    pollCloudCommand();
+    if (WiFi.status() != WL_CONNECTED) {
+      if (millis() - lastWifiRetryAt >= WIFI_RETRY_INTERVAL_MS) {
+        lastWifiRetryAt = millis();
+        WiFi.reconnect();
+      }
+      vTaskDelay(pdMS_TO_TICKS(250));
+      continue;
+    }
+
+    CloudAckMessage acknowledgement = {};
+    if (xQueueReceive(cloudAckQueue, &acknowledgement, 0) == pdTRUE) {
+      if (acknowledgement.commandId > 0) {
+        acknowledgeCloudCommand(
+          acknowledgement.commandId,
+          acknowledgement.success,
+          acknowledgement.message
+        );
+      }
+      cloudCommandInProgress = false;
+    }
+
+    if (
+      !cloudCommandInProgress
+      && millis() - lastCommandPollAt >= COMMAND_POLL_INTERVAL_MS
+    ) {
+      lastCommandPollAt = millis();
+      pollCloudCommand();
+    }
+
+    if (
+      cloudMachineReady
+      && millis() - lastTelemetryAt >= TELEMETRY_INTERVAL_MS
+    ) {
+      lastTelemetryAt = millis();
+      sendCloudTelemetry();
+    }
+
+    vTaskDelay(pdMS_TO_TICKS(20));
   }
-  if (
-    systemRunning
-    && millis() - lastTelemetryAt >= TELEMETRY_INTERVAL_MS
-  ) {
-    lastTelemetryAt = millis();
-    sendCloudTelemetry();
-  }
-  cloudBusy = false;
 }
