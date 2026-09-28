@@ -211,8 +211,17 @@ let machineMap = null;
 let machineMarker = null;
 let isEditMode = false;
 
-function openAdminModal(id){document.getElementById(id)?.classList.remove('hidden');}
+function mountAdminModal(id){
+  const modal=document.getElementById(id);
+  if(!modal||modal.parentElement===document.body)return modal;
+  modal.dataset.adminPagePortal='true';
+  document.body.appendChild(modal);
+  return modal;
+}
+function openAdminModal(id){mountAdminModal(id)?.classList.remove('hidden');}
 function closeAdminModal(id){document.getElementById(id)?.classList.add('hidden');}
+
+['device-panel','add-form','overview-map-modal','detail-modal'].forEach(mountAdminModal);
 function toggleStoredDeviceKey(id,button){const input=document.getElementById(id);const show=input.type==='password';input.type=show?'text':'password';button.textContent=show?'ซ่อน Key':'ดู Key';}
 function confirmMachineSuspension(){
   const restoring=currentMachine.status==='Suspended';

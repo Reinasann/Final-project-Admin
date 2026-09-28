@@ -80,7 +80,7 @@
 <script>setTimeout(()=>{const t=document.getElementById('toast-container');if(t)t.remove();},4000);</script>
 {% endif %}
 
-<div id="confirm-modal" class="hidden fixed inset-0 z-[60] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 no-print">
+<div id="confirm-modal" class="hidden fixed inset-0 z-[150] flex items-center justify-center bg-black/50 backdrop-blur-sm p-4 no-print">
   <div class="bg-white rounded-2xl shadow-2xl w-full max-w-md animate-fadein">
     <div class="p-6 text-center">
       <div class="w-14 h-14 bg-blue-50 rounded-full flex items-center justify-center mx-auto mb-4 text-blue-600"><i data-lucide="alert-circle" class="w-7 h-7"></i></div>
@@ -277,6 +277,7 @@ async function adminApplyAjaxResponse(html,responseUrl,historyMode,{preserveScro
   window.__adminStartPageRuntime();
   const main=document.getElementById('admin-main-content');
   const previousScrollTop=main.scrollTop;
+  document.querySelectorAll('[data-admin-page-portal="true"]').forEach(node=>node.remove());
   main.replaceChildren(...Array.from(responseRoot.childNodes).map(node=>document.adoptNode(node)));
   try{
     for(const script of executableScripts){

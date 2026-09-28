@@ -28,6 +28,15 @@ Adafruit_PWMServoDriver pwm = Adafruit_PWMServoDriver(0x40);
 #define METAL_SERVO_CH   2
 #define GLASS_SERVO_CH   3
 
+// ไฟแสดงสถานะต่อผ่าน PCA9685 เพื่อไม่ให้ชนกับ GPIO ของเซนเซอร์
+// CH4 = LED สีแดง, CH5 = LED สีฟ้า
+#define RED_LED_CH  4
+#define BLUE_LED_CH 5
+
+// LED สองสีที่ใช้เป็นแบบขาร่วมบวก (Common Anode / Active LOW)
+// หากต่อ LED แยกดวงโดยขั้วลบลง GND ให้เปลี่ยนค่าเป็น false
+#define STATUS_LED_ACTIVE_LOW true
+
 // =====================================================
 // CONTINUOUS ROTATION SERVO PWM (PCA9685 @ 50 Hz)
 // Servo ทุกตัวเป็นแบบ 360 องศา: ซ้าย / หยุด / ขวา
@@ -92,9 +101,16 @@ float calibrationValue = 23.50;
 // =====================================================
 // WEIGHT CLASSIFICATION
 // =====================================================
-#define LIGHT_WEIGHT_MAX 100.0f
-#define HEAVY_WEIGHT_MIN 200.0f
-#define MAX_VALID_OBJECT_WEIGHT 2000.0f
+#define LIGHT_WEIGHT_MAX 60.0f    // ปรับลดจาก 100.0f เป็น 60.0f (ครอบคลุมขวด PET ถึงขนาด 2 ลิตร)
+#define HEAVY_WEIGHT_MIN 120.0f   // ปรับลดจาก 200.0f เป็น 120.0f (รองรับขวดแก้วขนาดเล็ก 200-330ml ได้ทันที)
+#define MIN_VALID_OBJECT_WEIGHT 5.0f
+#define MAX_ACCEPTED_OBJECT_WEIGHT 1000.0f
+
+// น้ำหนักในช่วงที่ชัดเจนต้องมีอิทธิพลมากกว่าผล Piezo ทั้ง 3 ครั้ง
+// 5-60 g     = สนับสนุนพลาสติกอย่างเด็ดขาด
+// 61-119 g   = ใช้ผล Piezo เป็นหลัก เพราะเป็นช่วงก้ำกึ่ง (เช่น กระบอกน้ำพลาสติกแบบหนา หรือแก้วขนาดจิ๋ว)
+// 120-2000 g = สนับสนุนแก้วอย่างเด็ดขาด
+#define WEIGHT_DECISIVE_SCORE (PIEZO_TEST_COUNT + 2)
 
 // =====================================================
 // LOAD CELL STABILITY
@@ -244,6 +260,8 @@ struct SensorData {
 
   bool weightValid;
 
+  bool weightOverLimit;
+
   bool metalDetected;
 
   ObjectType result;
@@ -256,6 +274,15 @@ volatile bool systemRunning = false;
 
 // ป้องกันการส่ง Telemetry ก่อนปิดประตูหลักและ Auto Zero เสร็จ
 volatile bool cloudMachineReady = false;
+
+// สถานะที่ใช้ควบคุมไฟ LED
+volatile bool cloudConnectionFault = false;
+volatile bool hardwareFaultActive = false;
+volatile bool objectInspectionActive = false;
+
+bool statusLedsReady = false;
+bool redLedOn = false;
+bool blueLedOn = false;
 
 bool photoTriggered = false;
 
@@ -294,6 +321,112 @@ void serviceCloud();
 void resetCloudConfiguration();
 bool startMachineFromCloud();
 void stopMachineFromCloud();
+
+// =====================================================
+// STATUS LEDS (PCA9685 CH4 / CH5)
+// =====================================================
+void writeStatusLed(
+  int channel,
+  bool turnOn,
+  bool &currentState
+) {
+
+  if (
+    !statusLedsReady ||
+    currentState == turnOn
+  ) {
+
+    return;
+  }
+
+  currentState = turnOn;
+
+  // เขียนคำสั่งแบบตรงไปตรงมา (Active-High) โดยไม่ต้องพึ่งตัวแปร STATUS_LED_ACTIVE_LOW
+  // และใช้ค่า 4095 / 0 แทนการใช้ 4096 เพื่อป้องกันบั๊กบนบอร์ด PCA9685 บางรุ่น
+  if (turnOn) {
+    pwm.setPWM(channel, 0, 4095); // จ่ายไฟ Duty Cycle 100% (ไฟติด)
+  } else {
+    pwm.setPWM(channel, 0, 0);    // ตัดไฟ Duty Cycle 0% (ไฟดับ)
+  }
+}
+
+void setStatusLeds(
+  bool redOn,
+  bool blueOn
+) {
+
+  writeStatusLed(
+    RED_LED_CH,
+    redOn,
+    redLedOn
+  );
+
+  writeStatusLed(
+    BLUE_LED_CH,
+    blueOn,
+    blueLedOn
+  );
+}
+
+void serviceStatusLeds() {
+
+  if (!statusLedsReady) {
+
+    return;
+  }
+
+  unsigned long now = millis();
+
+  // ปัญหาการเชื่อมต่อหรือฮาร์ดแวร์: แดงติดค้าง
+  if (
+    cloudConnectionFault ||
+    hardwareFaultActive
+  ) {
+
+    setStatusLeds(true, false);
+    return;
+  }
+
+  // เครื่องปิด: แดงและฟ้ากระพริบพร้อมกันทุก 1 วินาที
+  if (!systemRunning) {
+
+    bool blinkOn =
+      (now / 1000UL) % 2UL == 0;
+
+    setStatusLeds(
+      blinkOn,
+      blinkOn
+    );
+
+    return;
+  }
+
+  // กำลังเริ่มระบบหรือตรวจสอบวัตถุ: แดงกระพริบทุก 500 ms
+  if (
+    !cloudMachineReady ||
+    objectInspectionActive
+  ) {
+
+    bool blinkOn =
+      (now / 500UL) % 2UL == 0;
+
+    setStatusLeds(
+      blinkOn,
+      false
+    );
+
+    return;
+  }
+
+  // เครื่องพร้อม: ฟ้ากระพริบทุก 500 ms
+  bool blinkOn =
+    (now / 500UL) % 2UL == 0;
+
+  setStatusLeds(
+    false,
+    blinkOn
+  );
+}
 
 // =====================================================
 // CH0 - PIEZO SERVO
@@ -704,6 +837,9 @@ void serviceBinLoadCells() {
     bin3.weight =
       w;
   }
+
+  // ทำให้ไฟยังกระพริบต่อเนื่องระหว่างรอ Load Cell และมอเตอร์
+  serviceStatusLeds();
 }
 
 // =====================================================
@@ -1270,6 +1406,97 @@ bool autoZeroLoadCell() {
 }
 
 // =====================================================
+// READ OBJECT WEIGHT FOR CLASSIFICATION
+// =====================================================
+void readObjectWeight(
+  SensorData &data
+) {
+
+  Serial.println();
+  Serial.println(
+    "Trying to read object weight..."
+  );
+
+  float stableRaw = 0;
+
+  if (
+    readStableWeight(
+      stableRaw
+    )
+  ) {
+
+    float objectWeight =
+      stableRaw -
+      emptyWeight;
+
+    Serial.print(
+      "Object Net Weight = "
+    );
+
+    Serial.print(
+      objectWeight,
+      1
+    );
+
+    Serial.println(" g");
+
+    if (
+      objectWeight >
+      MAX_ACCEPTED_OBJECT_WEIGHT
+    ) {
+
+      data.weight =
+        objectWeight;
+
+      data.weightValid =
+        true;
+
+      data.weightOverLimit =
+        true;
+
+      Serial.println(
+        "Object is too heavy / rejected"
+      );
+
+    } else if (
+      objectWeight >=
+      MIN_VALID_OBJECT_WEIGHT
+    ) {
+
+      data.weight =
+        objectWeight;
+
+      data.weightValid =
+        true;
+
+    } else {
+
+      data.weight =
+        0;
+
+      data.weightValid =
+        false;
+
+      Serial.println(
+        "Weight ignored"
+      );
+    }
+
+  } else {
+
+    data.weight =
+      0;
+
+    data.weightValid =
+      false;
+
+    Serial.println(
+      "Weight unstable / ignored"
+    );
+  }
+}
+
+// =====================================================
 // PIEZO STRIKE
 // =====================================================
 int readPiezoStrike() {
@@ -1457,7 +1684,22 @@ ObjectType classifyObject(
   SensorData &data
 ) {
 
-  // Metal priority
+  // น้ำหนักเกินต้องถูกปฏิเสธก่อนทุกประเภท รวมถึงโลหะ
+  if (
+    data.weightOverLimit
+  ) {
+
+    Serial.println();
+    Serial.println("================================");
+    Serial.println("WEIGHT OVER LIMIT");
+    Serial.print("Maximum accepted weight = ");
+    Serial.print(MAX_ACCEPTED_OBJECT_WEIGHT, 1);
+    Serial.println(" g");
+
+    return TYPE_UNKNOWN;
+  }
+
+  // Metal priority after the object passes the weight limit
   if (
     data.metalDetected
   ) {
@@ -1564,10 +1806,11 @@ ObjectType classifyObject(
       LIGHT_WEIGHT_MAX
     ) {
 
-      plasticScore++;
+      plasticScore +=
+        WEIGHT_DECISIVE_SCORE;
 
       Serial.println(
-        "Weight Vote -> PLASTIC"
+        "Weight Decision -> PLASTIC"
       );
     }
 
@@ -1577,10 +1820,11 @@ ObjectType classifyObject(
       HEAVY_WEIGHT_MIN
     ) {
 
-      glassScore++;
+      glassScore +=
+        WEIGHT_DECISIVE_SCORE;
 
       Serial.println(
-        "Weight Vote -> GLASS"
+        "Weight Decision -> GLASS"
       );
     }
 
@@ -2574,6 +2818,13 @@ void setup() {
   // CH1 CH2 CH3
   stopAllSortServos();
 
+  // CH4 CH5 - Status LEDs
+  statusLedsReady = true;
+  redLedOn = true;
+  blueLedOn = true;
+  setStatusLeds(false, false);
+  serviceStatusLeds();
+
   // ===================================================
   // INSPECTION HX711
   // ===================================================
@@ -2592,6 +2843,8 @@ void setup() {
   if (
     LoadCell.getTareTimeoutFlag()
   ) {
+
+    hardwareFaultActive = true;
 
     Serial.println(
       "Inspection HX711 Timeout!"
@@ -2616,6 +2869,12 @@ void setup() {
     true
   );
 
+  if (BinLoad1.getTareTimeoutFlag()) {
+
+    hardwareFaultActive = true;
+    Serial.println("BIN HX711 #1 Timeout!");
+  }
+
   BinLoad1.setCalFactor(
     binCalibration1
   );
@@ -2634,6 +2893,12 @@ void setup() {
     true
   );
 
+  if (BinLoad2.getTareTimeoutFlag()) {
+
+    hardwareFaultActive = true;
+    Serial.println("BIN HX711 #2 Timeout!");
+  }
+
   BinLoad2.setCalFactor(
     binCalibration2
   );
@@ -2651,6 +2916,12 @@ void setup() {
     2000,
     true
   );
+
+  if (BinLoad3.getTareTimeoutFlag()) {
+
+    hardwareFaultActive = true;
+    Serial.println("BIN HX711 #3 Timeout!");
+  }
 
   BinLoad3.setCalFactor(
     binCalibration3
@@ -2695,6 +2966,11 @@ void setup() {
     emptyWeight =
       total /
       count;
+
+  } else {
+
+    hardwareFaultActive = true;
+    Serial.println("Inspection HX711 has no initial reading!");
   }
 
   // ===================================================
@@ -2760,6 +3036,18 @@ void setup() {
     "Glass Piezo >= 3000"
   );
 
+  Serial.println(
+    "Plastic Weight = 5-100 g"
+  );
+
+  Serial.println(
+    "Glass Weight = 200-2000 g"
+  );
+
+  Serial.println(
+    "Reject Weight > 2000 g"
+  );
+
   Serial.println();
 
   Serial.println(
@@ -2796,6 +3084,8 @@ void loop() {
   // รับเฉพาะคำสั่งฮาร์ดแวร์จาก Queue; งาน HTTPS อยู่บน Core 0
   // จึงไม่บล็อกการอ่าน Photo Sensor ใน Arduino loop
   serviceCloud();
+
+  serviceStatusLeds();
 
   // ===================================================
   // UPDATE HX711
@@ -2945,6 +3235,8 @@ void loop() {
   Serial.println("ถือว่าวัตถุเข้าระบบแล้ว");
   Serial.println("================================");
 
+  objectInspectionActive = true;
+
   // ===================================================
   // WAIT 2 SEC + WATCH METAL
   // ===================================================
@@ -2971,6 +3263,9 @@ void loop() {
     0;
 
   data.weightValid =
+    false;
+
+  data.weightOverLimit =
     false;
 
   data.metalDetected =
@@ -3009,8 +3304,14 @@ void loop() {
     data.metalDetected
   ) {
 
+    readObjectWeight(
+      data
+    );
+
     data.result =
-      TYPE_METAL;
+      classifyObject(
+        data
+      );
 
     printResult(
       data.result
@@ -3044,71 +3345,9 @@ void loop() {
     // =================================================
     // OBJECT WEIGHT
     // =================================================
-    Serial.println();
-    Serial.println(
-      "Trying to read object weight..."
+    readObjectWeight(
+      data
     );
-
-    float stableRaw = 0;
-
-    if (
-      readStableWeight(
-        stableRaw
-      )
-    ) {
-
-      float objectWeight =
-        stableRaw -
-        emptyWeight;
-
-      Serial.print(
-        "Object Net Weight = "
-      );
-
-      Serial.print(
-        objectWeight,
-        1
-      );
-
-      Serial.println(" g");
-
-      if (
-        objectWeight >= 0 &&
-        objectWeight <=
-        MAX_VALID_OBJECT_WEIGHT
-      ) {
-
-        data.weight =
-          objectWeight;
-
-        data.weightValid =
-          true;
-
-      } else {
-
-        data.weight =
-          0;
-
-        data.weightValid =
-          false;
-
-        Serial.println(
-          "Weight ignored"
-        );
-      }
-
-    } else {
-
-      data.weight =
-        0;
-
-      data.weightValid =
-        false;
-
-      Serial.println(
-        "Weight unstable / ignored"
-      );
-    }
 
     // =================================================
     // CLASSIFY
@@ -3131,12 +3370,52 @@ void loop() {
   }
 
   // ===================================================
+  // OVERWEIGHT
+  //
+  // น้ำหนักเกินจะไม่เปิด Sort Gate และประตูหลัก
+  // ===================================================
+  if (
+    data.weightOverLimit
+  ) {
+
+    Serial.println();
+    Serial.println("================================");
+    Serial.println("OBJECT REJECTED");
+
+    Serial.println("REASON : WEIGHT OVER LIMIT");
+
+    Serial.println("SORT GATE = CLOSED");
+    Serial.println("MAIN DOOR = CLOSED");
+    Serial.println("กรุณานำวัตถุออกจากจุดตรวจ");
+    Serial.println("================================");
+
+    objectInspectionActive = false;
+
+    return;
+  }
+
+  // จำแนกไม่ได้: ไม่เลือกช่อง CH1-CH3 แต่ยังเปิดประตูหลัก
+  // เพื่อปล่อยวัตถุออกจากจุดตรวจตามที่กำหนด
+  if (
+    data.result ==
+    TYPE_UNKNOWN
+  ) {
+
+    Serial.println();
+    Serial.println("================================");
+    Serial.println("CLASSIFICATION UNKNOWN");
+    Serial.println("SORT GATE = NO CHANNEL SELECTED");
+    Serial.println("MAIN DOOR = WILL OPEN");
+    Serial.println("================================");
+  }
+
+  // ===================================================
   // OPEN SORT GATE
   //
   // Plastic -> CH1
   // Metal   -> CH2
   // Glass   -> CH3
-  // Unknown -> NONE
+  // Unknown -> ไม่เปิดช่องคัดแยก แต่ทำงานต่อเพื่อเปิดประตูหลัก
   // ===================================================
   if (
     !openGateForType(
@@ -3231,6 +3510,9 @@ void loop() {
     metalLatched =
       false;
 
+    objectInspectionActive =
+      false;
+
     return;
   }
 
@@ -3248,6 +3530,9 @@ void loop() {
   // NEXT ROUND
   // ===================================================
   metalLatched =
+    false;
+
+  objectInspectionActive =
     false;
 
   Serial.println();

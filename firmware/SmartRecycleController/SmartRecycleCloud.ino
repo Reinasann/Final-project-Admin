@@ -139,12 +139,16 @@ void setupCloud() {
   loadCloudCredentials();
   WiFi.mode(WIFI_STA);
 
+  cloudConnectionFault = true;
+
   Serial.println();
   Serial.println("Connecting with WiFiManager...");
   if (!openCloudConfigurationPortal()) {
     Serial.println("Cloud integration is not configured.");
     return;
   }
+
+  cloudConnectionFault = false;
 
   // For production, replace setInsecure() with the Render root CA certificate.
   cloudSecureClient.setInsecure();
@@ -156,6 +160,7 @@ void setupCloud() {
   cloudCommandQueue = xQueueCreate(1, sizeof(CloudCommandMessage));
   cloudAckQueue = xQueueCreate(2, sizeof(CloudAckMessage));
   if (cloudCommandQueue == nullptr || cloudAckQueue == nullptr) {
+    cloudConnectionFault = true;
     Serial.println("Cloud queue creation failed");
     return;
   }
@@ -173,6 +178,7 @@ void setupCloud() {
     0
   );
   if (taskCreated != pdPASS) {
+    cloudConnectionFault = true;
     Serial.println("Cloud network task creation failed");
   } else {
     Serial.println("Cloud network task created on Core 0 (low priority)");
@@ -185,6 +191,7 @@ void stopMachineFromCloud() {
   closeDoorOnStartRequested = false;
   photoTriggered = false;
   metalLatched = false;
+  objectInspectionActive = false;
   stopServo();
   stopAllSortServos();
   digitalWrite(STEP_PIN, LOW);
@@ -201,6 +208,7 @@ bool startMachineFromCloud() {
   closeDoorOnStartRequested = false;
   photoTriggered = false;
   metalLatched = false;
+  objectInspectionActive = false;
 
   // Option 1 selected: close/reset all three sorting gates in sequence.
   const int channels[] = {
@@ -286,6 +294,7 @@ void acknowledgeCloudCommand(
     + String(commandId)
     + "/ack/";
   if (!http.begin(cloudSecureClient, url)) {
+    cloudConnectionFault = true;
     return;
   }
 
@@ -300,6 +309,9 @@ void acknowledgeCloudCommand(
   serializeJson(body, encoded);
   int statusCode = http.POST(encoded);
   http.end();
+  cloudConnectionFault =
+    statusCode < 200 ||
+    statusCode >= 300;
   Serial.printf("Command ACK %ld -> HTTP %d\n", commandId, statusCode);
 }
 
@@ -353,6 +365,7 @@ bool pollCloudCommand() {
     + "/api/v1/iot/commands/?device_id="
     + cloudDeviceId;
   if (!http.begin(cloudSecureClient, url)) {
+    cloudConnectionFault = true;
     return false;
   }
   http.setTimeout(3000);
@@ -360,15 +373,19 @@ bool pollCloudCommand() {
   int statusCode = http.GET();
   String response = jsonResponseBody(http);
   if (statusCode != HTTP_CODE_OK) {
+    cloudConnectionFault = true;
     Serial.printf("Command poll failed: HTTP %d\n", statusCode);
     return false;
   }
 
   JsonDocument document;
   if (deserializeJson(document, response)) {
+    cloudConnectionFault = true;
     Serial.println("Command poll returned invalid JSON");
     return false;
   }
+
+  cloudConnectionFault = false;
 
   JsonVariant command = document["command"];
   if (command.isNull()) {
@@ -400,6 +417,7 @@ void sendCloudTelemetry() {
   HTTPClient http;
   String url = String(API_BASE_URL) + "/api/v1/iot/telemetry/";
   if (!http.begin(cloudSecureClient, url)) {
+    cloudConnectionFault = true;
     return;
   }
   http.setTimeout(3000);
@@ -429,6 +447,9 @@ void sendCloudTelemetry() {
   serializeJson(document, encoded);
   int statusCode = http.POST(encoded);
   String response = jsonResponseBody(http);
+  cloudConnectionFault =
+    statusCode < 200 ||
+    statusCode >= 300;
   Serial.printf("Telemetry -> HTTP %d\n", statusCode);
   if (statusCode < 200 || statusCode >= 300) {
     Serial.println(response);
@@ -476,6 +497,7 @@ void cloudNetworkTask(void *parameter) {
     }
 
     if (WiFi.status() != WL_CONNECTED) {
+      cloudConnectionFault = true;
       if (millis() - lastWifiRetryAt >= WIFI_RETRY_INTERVAL_MS) {
         lastWifiRetryAt = millis();
         WiFi.reconnect();

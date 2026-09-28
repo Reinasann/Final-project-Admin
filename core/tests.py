@@ -92,6 +92,17 @@ class AdminAjaxNavigationTests(TestCase):
         self.assertContains(response, 'class="app-shell')
         self.assertContains(response, 'id="admin-main-content"')
 
+    def test_machine_modals_are_mounted_above_the_page_layout(self):
+        response = self.client.get("/machines/?devices=1")
+
+        self.assertContains(response, "function mountAdminModal(id)")
+        self.assertContains(
+            response,
+            "['device-panel','add-form','overview-map-modal','detail-modal'].forEach(mountAdminModal)",
+        )
+        self.assertContains(response, 'data-admin-page-portal="true"')
+        self.assertContains(response, 'id="confirm-modal" class="hidden fixed inset-0 z-[150]')
+
     def test_ajax_post_redirect_finishes_as_partial_content(self):
         response = self.client.post(
             "/organizations/add/",
@@ -1116,6 +1127,10 @@ class ApiTests(TestCase):
         self.assertContains(dashboard_response, 'id="chart-end-date-picker" type="date"')
         self.assertContains(dashboard_response, 'aria-label="เปิดปฏิทินวันที่เริ่มต้น"')
         self.assertContains(dashboard_response, 'id="pie-tooltip"')
+        self.assertContains(dashboard_response, 'id="chart-axis-description"')
+        self.assertContains(dashboard_response, "แกน X:")
+        self.assertContains(dashboard_response, "แกน Y:")
+        self.assertContains(dashboard_response, "น้ำหนักขยะ (กิโลกรัม)")
         self.assertContains(dashboard_response, 'background-color:#111827')
         self.assertContains(dashboard_response, 'const safeLeft=')
         self.assertContains(dashboard_response, 'segment.percentage.toFixed(1)')
