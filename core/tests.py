@@ -296,6 +296,43 @@ class SuspensionAndEscalationTests(TestCase):
             [self.issue.id],
         )
 
+    def test_organization_admin_cannot_manage_issue_after_escalation(self):
+        self.login(self.organization_admin)
+        self.client.post("/issues/escalate/", data={"id": self.issue.id})
+
+        response = self.client.post(
+            "/issues/next-status/",
+            data={"id": self.issue.id, "tab": "Waiting"},
+            follow=True,
+        )
+
+        self.issue.refresh_from_db()
+        self.assertEqual(self.issue.status, IssueReport.Status.WAITING)
+        self.assertContains(
+            response,
+            "รายการนี้ส่งให้แอดมินสูงสุดแล้ว แอดมินหน่วยงานไม่สามารถรับเรื่องหรือปิดงานได้",
+        )
+
+    def test_super_admin_can_manage_escalated_issue_until_completed(self):
+        self.login(self.organization_admin)
+        self.client.post("/issues/escalate/", data={"id": self.issue.id})
+        self.client.get("/logout/")
+        self.login(self.super_admin)
+
+        self.client.post(
+            "/issues/next-status/",
+            data={"id": self.issue.id, "tab": "Waiting"},
+        )
+        self.issue.refresh_from_db()
+        self.assertEqual(self.issue.status, IssueReport.Status.IN_PROGRESS)
+
+        self.client.post(
+            "/issues/next-status/",
+            data={"id": self.issue.id, "tab": "In Progress"},
+        )
+        self.issue.refresh_from_db()
+        self.assertEqual(self.issue.status, IssueReport.Status.COMPLETED)
+
     def test_new_device_key_can_be_viewed_after_encrypted_storage(self):
         device = MachineInformation(
             serial_number="ESP32-FLOW", model="ESP32",

@@ -96,20 +96,20 @@ bool metalLatched = false;
 
 HX711_ADC LoadCell(HX_DOUT, HX_SCK);
 
-float calibrationValue = 23.50;
+float calibrationValue = 21.07;
 
 // =====================================================
 // WEIGHT CLASSIFICATION
 // =====================================================
 #define LIGHT_WEIGHT_MAX 60.0f    // ปรับลดจาก 100.0f เป็น 60.0f (ครอบคลุมขวด PET ถึงขนาด 2 ลิตร)
 #define HEAVY_WEIGHT_MIN 120.0f   // ปรับลดจาก 200.0f เป็น 120.0f (รองรับขวดแก้วขนาดเล็ก 200-330ml ได้ทันที)
-#define MIN_VALID_OBJECT_WEIGHT 5.0f
-#define MAX_ACCEPTED_OBJECT_WEIGHT 1000.0f
+#define MIN_VALID_OBJECT_WEIGHT 10.0f
+#define MAX_ACCEPTED_OBJECT_WEIGHT 600.0f
 
 // น้ำหนักในช่วงที่ชัดเจนต้องมีอิทธิพลมากกว่าผล Piezo ทั้ง 3 ครั้ง
-// 5-60 g     = สนับสนุนพลาสติกอย่างเด็ดขาด
+// 10-60 g    = สนับสนุนพลาสติกอย่างเด็ดขาด
 // 61-119 g   = ใช้ผล Piezo เป็นหลัก เพราะเป็นช่วงก้ำกึ่ง (เช่น กระบอกน้ำพลาสติกแบบหนา หรือแก้วขนาดจิ๋ว)
-// 120-2000 g = สนับสนุนแก้วอย่างเด็ดขาด
+// 120-1000 g = สนับสนุนแก้วอย่างเด็ดขาด
 #define WEIGHT_DECISIVE_SCORE (PIEZO_TEST_COUNT + 2)
 
 // =====================================================
@@ -259,6 +259,8 @@ struct SensorData {
   float weight;
 
   bool weightValid;
+
+  bool weightUnderLimit;
 
   bool weightOverLimit;
 
@@ -1412,6 +1414,12 @@ void readObjectWeight(
   SensorData &data
 ) {
 
+  data.weightUnderLimit =
+    false;
+
+  data.weightOverLimit =
+    false;
+
   Serial.println();
   Serial.println(
     "Trying to read object weight..."
@@ -1477,8 +1485,11 @@ void readObjectWeight(
       data.weightValid =
         false;
 
+      data.weightUnderLimit =
+        true;
+
       Serial.println(
-        "Weight ignored"
+        "Object is too light / sorting skipped"
       );
     }
 
@@ -1684,7 +1695,7 @@ ObjectType classifyObject(
   SensorData &data
 ) {
 
-  // น้ำหนักเกินต้องถูกปฏิเสธก่อนทุกประเภท รวมถึงโลหะ
+  // น้ำหนักเกินจะไม่เลือกช่องคัดแยก รวมถึงกรณีที่ตรวจพบโลหะ
   if (
     data.weightOverLimit
   ) {
@@ -1694,6 +1705,21 @@ ObjectType classifyObject(
     Serial.println("WEIGHT OVER LIMIT");
     Serial.print("Maximum accepted weight = ");
     Serial.print(MAX_ACCEPTED_OBJECT_WEIGHT, 1);
+    Serial.println(" g");
+
+    return TYPE_UNKNOWN;
+  }
+
+  // น้ำหนักต่ำกว่าขั้นต่ำจะไม่เลือกช่องคัดแยก แต่ยังเปิดประตูหลัก
+  if (
+    data.weightUnderLimit
+  ) {
+
+    Serial.println();
+    Serial.println("================================");
+    Serial.println("WEIGHT UNDER LIMIT");
+    Serial.print("Minimum accepted weight = ");
+    Serial.print(MIN_VALID_OBJECT_WEIGHT, 1);
     Serial.println(" g");
 
     return TYPE_UNKNOWN;
@@ -3265,6 +3291,9 @@ void loop() {
   data.weightValid =
     false;
 
+  data.weightUnderLimit =
+    false;
+
   data.weightOverLimit =
     false;
 
@@ -3370,35 +3399,31 @@ void loop() {
   }
 
   // ===================================================
-  // OVERWEIGHT
+  // WEIGHT OUTSIDE ACCEPTED RANGE
   //
-  // น้ำหนักเกินจะไม่เปิด Sort Gate และประตูหลัก
+  // ไม่เปิด Sort Gate แต่ยังทำงานต่อเพื่อเปิดประตูหลัก
   // ===================================================
   if (
+    data.weightUnderLimit ||
     data.weightOverLimit
   ) {
 
     Serial.println();
     Serial.println("================================");
-    Serial.println("OBJECT REJECTED");
-
-    Serial.println("REASON : WEIGHT OVER LIMIT");
+    Serial.println("OBJECT WEIGHT OUTSIDE ACCEPTED RANGE");
 
     Serial.println("SORT GATE = CLOSED");
-    Serial.println("MAIN DOOR = CLOSED");
-    Serial.println("กรุณานำวัตถุออกจากจุดตรวจ");
+    Serial.println("MAIN DOOR = WILL OPEN");
     Serial.println("================================");
-
-    objectInspectionActive = false;
-
-    return;
   }
 
   // จำแนกไม่ได้: ไม่เลือกช่อง CH1-CH3 แต่ยังเปิดประตูหลัก
   // เพื่อปล่อยวัตถุออกจากจุดตรวจตามที่กำหนด
   if (
     data.result ==
-    TYPE_UNKNOWN
+    TYPE_UNKNOWN &&
+    !data.weightUnderLimit &&
+    !data.weightOverLimit
   ) {
 
     Serial.println();
@@ -3493,7 +3518,7 @@ void loop() {
   // ===================================================
   // LEAVE TIMEOUT
   //
-  // ระบบยังทำต่อ
+  // ระบบยังทำต่อ และจะ Auto Zero เหมือนรอบปกติ
   // ===================================================
   if (
     !objectRemoved
@@ -3503,21 +3528,14 @@ void loop() {
     Serial.println("================================");
     Serial.println("OBJECT LEAVE TIMEOUT");
     Serial.println("MAIN DOOR = CLOSED");
-    Serial.println("AUTO ZERO = SKIPPED");
+    Serial.println("AUTO ZERO = WILL RUN");
     Serial.println("SYSTEM = CONTINUE");
     Serial.println("================================");
-
-    metalLatched =
-      false;
-
-    objectInspectionActive =
-      false;
-
-    return;
   }
 
   // ===================================================
   // AUTO ZERO INSPECTION LOAD CELL
+  // ทำทุกครั้งเมื่อจบรอบตรวจสอบและปิดประตูหลักแล้ว
   // ===================================================
   if (
     !autoZeroLoadCell()

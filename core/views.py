@@ -1321,17 +1321,26 @@ def issue_next_status(request):
     iid = int(request.POST.get('id'))
     tab = request.POST.get('tab', 'Waiting')
     status_map = {'Waiting': 'In Progress', 'In Progress': 'Completed'}
-    allowed_orgs = None if is_system_admin(request) else {current_org_id(request)}
 
     issue = IssueReport.objects.select_related('machine').filter(pk=iid).first()
     can_manage = bool(issue) and (
         (is_system_admin(request) and issue.escalated_at is not None)
-        or (not is_system_admin(request) and issue.machine.organization_id in allowed_orgs)
+        or (
+            not is_system_admin(request)
+            and issue.machine.organization_id == current_org_id(request)
+            and issue.escalated_at is None
+        )
     )
     if issue and issue.status in status_map and can_manage:
         issue.status = status_map[issue.status]
         issue.save(update_fields=['status', 'updated_at'])
         request.session['toast'] = {'type': 'success', 'title': 'บันทึกแล้ว', 'message': 'เปลี่ยนสถานะแจ้งซ่อมแล้ว'}
+    elif issue and not can_manage:
+        request.session['toast'] = {
+            'type': 'error',
+            'title': 'ไม่สามารถดำเนินการได้',
+            'message': 'รายการนี้ส่งให้แอดมินสูงสุดแล้ว แอดมินหน่วยงานไม่สามารถรับเรื่องหรือปิดงานได้',
+        }
     return redirect(f'/issues/?tab={tab}')
 
 

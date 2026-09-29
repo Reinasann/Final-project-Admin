@@ -12,7 +12,7 @@
  */
 
 const char *API_BASE_URL = "https://smart-recycle-admin.onrender.com";
-const unsigned long TELEMETRY_INTERVAL_MS = 60000UL;
+const unsigned long TELEMETRY_INTERVAL_MS = 15000UL;
 const unsigned long COMMAND_POLL_INTERVAL_MS = 2000UL;
 const unsigned long WIFI_RETRY_INTERVAL_MS = 10000UL;
 const unsigned long STATE_RECONCILE_INTERVAL_MS = 30000UL;
