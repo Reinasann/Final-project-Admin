@@ -49,9 +49,11 @@ def get_machines(session):
             key=lambda caretaker: (caretaker.name.casefold(), caretaker.id),
         )
         level = lambda waste_type: float(bins[waste_type].current_level_percent) if waste_type in bins else 0
+        weight = lambda waste_type: float(bins[waste_type].current_weight_kg) if waste_type in bins else 0
         result.append({'id': row.id, 'code': row.code, 'name': row.name, 'location': row.location,
                        'status': row.status, 'plastic': level('plastic'), 'glass': level('glass'),
-                       'can': level('can'),
+                       'can': level('can'), 'plastic_weight': weight('plastic'),
+                       'glass_weight': weight('glass'), 'can_weight': weight('can'),
                        'latitude': str(row.latitude) if row.latitude is not None else '',
                        'longitude': str(row.longitude) if row.longitude is not None else '',
                        'serial_number': row.device_id or '',

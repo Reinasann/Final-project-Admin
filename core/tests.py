@@ -103,6 +103,39 @@ class AdminAjaxNavigationTests(TestCase):
         self.assertContains(response, 'data-admin-page-portal="true"')
         self.assertContains(response, 'id="confirm-modal" class="hidden fixed inset-0 z-[150]')
 
+    def test_machine_cards_show_each_bin_weight_below_its_percentage(self):
+        machine = Machine.objects.create(
+            id="M-WEIGHT-1",
+            organization=self.organization,
+            code="SR-WEIGHT-1",
+            name="Weight machine",
+            status=Machine.Status.ONLINE,
+        )
+        MachineBin.objects.create(
+            machine=machine,
+            waste_type=MachineBin.WasteType.PLASTIC,
+            current_level_percent="40.00",
+            current_weight_kg="4.75",
+        )
+        MachineBin.objects.create(
+            machine=machine,
+            waste_type=MachineBin.WasteType.GLASS,
+            current_level_percent="5.00",
+            current_weight_kg="9.20",
+        )
+        MachineBin.objects.create(
+            machine=machine,
+            waste_type=MachineBin.WasteType.CAN,
+            current_level_percent="13.00",
+            current_weight_kg="1.00",
+        )
+
+        response = self.client.get("/machines/")
+
+        self.assertContains(response, "4.75 กก.")
+        self.assertContains(response, "9.20 กก.")
+        self.assertContains(response, "1 กก.")
+
     def test_ajax_post_redirect_finishes_as_partial_content(self):
         response = self.client.post(
             "/organizations/add/",
@@ -237,12 +270,22 @@ class SuspensionAndEscalationTests(TestCase):
             email="org-flow@example.com", role=User.Role.ORGANIZATION_ADMIN,
             status=User.Status.ACTIVE,
         )
-        for user in (self.super_admin, self.organization_admin):
+        self.collector = User(
+            id="CO-FLOW", organization=self.organization, name="Collector",
+            email="collector-flow@example.com", role=User.Role.COLLECTOR,
+            status=User.Status.ACTIVE,
+        )
+        for user in (self.super_admin, self.organization_admin, self.collector):
             user.set_password("password123")
             user.save()
         self.machine = Machine.objects.create(
             id="M-FLOW", organization=self.organization, code="SR-FLOW",
             name="Flow machine", location="Building A", status=Machine.Status.ONLINE,
+        )
+        self.offline_machine = Machine.objects.create(
+            id="M-FLOW-2", organization=self.organization, code="SR-FLOW-2",
+            name="Offline flow machine", location="Building B",
+            status=Machine.Status.OFFLINE,
         )
         self.category = IssueCategory.objects.create(name="Flow issue")
         self.issue = IssueReport.objects.create(
@@ -263,11 +306,21 @@ class SuspensionAndEscalationTests(TestCase):
             "/organizations/toggle-status/", data={"id": self.organization.id},
         )
         self.organization.refresh_from_db()
+        self.organization_admin.refresh_from_db()
+        self.collector.refresh_from_db()
         self.machine.refresh_from_db()
+        self.offline_machine.refresh_from_db()
         self.assertEqual(self.organization.status, Organization.Status.SUSPENDED)
-        self.assertEqual(self.machine.status, Machine.Status.OFFLINE)
+        self.assertEqual(self.organization_admin.status, User.Status.SUSPENDED)
+        self.assertEqual(self.collector.status, User.Status.SUSPENDED)
+        self.assertEqual(self.machine.status, Machine.Status.SUSPENDED)
+        self.assertEqual(self.offline_machine.status, Machine.Status.SUSPENDED)
         self.assertEqual(
             self.machine.device_commands.latest("id").command,
+            MachineCommand.Command.STOP,
+        )
+        self.assertEqual(
+            self.offline_machine.device_commands.latest("id").command,
             MachineCommand.Command.STOP,
         )
 
@@ -278,7 +331,7 @@ class SuspensionAndEscalationTests(TestCase):
                 "password": "password123",
             },
         )
-        self.assertContains(response, "หน่วยงานนี้ถูกระงับ", status_code=200)
+        self.assertContains(response, "บัญชีนี้ถูกระงับ", status_code=200)
 
     def test_escalation_resets_status_and_reveals_issue_to_super_admin(self):
         self.login(self.organization_admin)

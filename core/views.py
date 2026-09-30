@@ -627,24 +627,29 @@ def organization_toggle_status(request):
         return redirect('organizations')
 
     if organization.status == Organization.Status.ACTIVE:
-        organization.status = Organization.Status.SUSPENDED
-        organization.save(update_fields=['status'])
         now = timezone.now()
-        ApiToken.objects.filter(
-            user__organization=organization,
-            revoked_at__isnull=True,
-        ).update(revoked_at=now)
-        for machine in Machine.objects.filter(organization=organization):
-            if machine.status == Machine.Status.ONLINE:
-                machine.status = Machine.Status.OFFLINE
-                machine.last_updated_at = now
-                machine.save(update_fields=['status', 'last_updated_at'])
-            api.enqueue_machine_command(machine, MachineCommand.Command.STOP)
-        message = 'ระงับหน่วยงานแล้ว ผู้ใช้งานในหน่วยงานนี้จะไม่สามารถเข้าใช้งานระบบได้'
+        with transaction.atomic():
+            organization.status = Organization.Status.SUSPENDED
+            organization.save(update_fields=['status'])
+            User.objects.filter(organization=organization).update(
+                status=User.Status.SUSPENDED,
+            )
+            ApiToken.objects.filter(
+                user__organization=organization,
+                revoked_at__isnull=True,
+            ).update(revoked_at=now)
+            machines = list(Machine.objects.filter(organization=organization))
+            Machine.objects.filter(organization=organization).update(
+                status=Machine.Status.SUSPENDED,
+                last_updated_at=now,
+            )
+            for machine in machines:
+                api.enqueue_machine_command(machine, MachineCommand.Command.STOP)
+        message = 'ระงับหน่วยงาน ผู้ใช้งาน และเครื่องทั้งหมดในหน่วยงานแล้ว'
     else:
         organization.status = Organization.Status.ACTIVE
         organization.save(update_fields=['status'])
-        message = 'เปิดใช้งานหน่วยงานแล้ว'
+        message = 'เปิดใช้งานหน่วยงานแล้ว ผู้ใช้งานและเครื่องที่ถูกระงับยังต้องเปิดใช้งานแยกกัน'
     request.session['toast'] = {
         'type': 'success', 'title': 'บันทึกแล้ว', 'message': message,
     }

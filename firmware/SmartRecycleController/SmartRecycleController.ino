@@ -70,8 +70,10 @@ Adafruit_PWMServoDriver pwm = Adafruit_PWMServoDriver(0x40);
 #define PIEZO_TEST_COUNT 3
 #define PIEZO_BETWEEN_HITS 250
 
-// Plastic < 3000
+// Unknown < 1000
+// Plastic 1000-2999
 // Glass >= 3000
+#define PIEZO_VALID_MIN 1000
 #define PLASTIC_MAX 2999
 #define GLASS_MIN   3000
 
@@ -103,13 +105,14 @@ float calibrationValue = 21.07;
 // =====================================================
 #define LIGHT_WEIGHT_MAX 60.0f    // ปรับลดจาก 100.0f เป็น 60.0f (ครอบคลุมขวด PET ถึงขนาด 2 ลิตร)
 #define HEAVY_WEIGHT_MIN 120.0f   // ปรับลดจาก 200.0f เป็น 120.0f (รองรับขวดแก้วขนาดเล็ก 200-330ml ได้ทันที)
+#define GLASS_WEIGHT_MAX 450.0f
 #define MIN_VALID_OBJECT_WEIGHT 10.0f
-#define MAX_ACCEPTED_OBJECT_WEIGHT 600.0f
+#define MAX_ACCEPTED_OBJECT_WEIGHT 500.0f
 
 // น้ำหนักในช่วงที่ชัดเจนต้องมีอิทธิพลมากกว่าผล Piezo ทั้ง 3 ครั้ง
 // 10-60 g    = สนับสนุนพลาสติกอย่างเด็ดขาด
 // 61-119 g   = ใช้ผล Piezo เป็นหลัก เพราะเป็นช่วงก้ำกึ่ง (เช่น กระบอกน้ำพลาสติกแบบหนา หรือแก้วขนาดจิ๋ว)
-// 120-1000 g = สนับสนุนแก้วอย่างเด็ดขาด
+// 120-500 g  = สนับสนุนแก้วอย่างเด็ดขาด
 #define WEIGHT_DECISIVE_SCORE (PIEZO_TEST_COUNT + 2)
 
 // =====================================================
@@ -858,7 +861,7 @@ void serviceAllLoadCells() {
 // SERIAL COMMAND
 //
 // s = Start / Stop
-// t = Tare BIN HX711
+// t = แสดงสถานะการตั้งศูนย์ถัง (Tare ทำเฉพาะตอนเปิดเครื่อง)
 // =====================================================
 void checkSerial() {
 
@@ -892,35 +895,20 @@ void checkSerial() {
   }
 
   // ===================================================
-  // TARE BIN HX711
+  // BIN TARE STATUS
+  // ถังทั้ง 3 Tare เพียงครั้งเดียวใน setup()
   // ===================================================
   else if (
     command == 't' ||
     command == 'T'
   ) {
 
-    if (
-      !systemRunning
-    ) {
-
-      Serial.println();
-      Serial.println("================================");
-      Serial.println("TARE BIN LOAD CELLS");
-      Serial.println("ถังทั้ง 3 ต้องว่าง");
-      Serial.println("================================");
-
-      BinLoad1.tareNoDelay();
-
-      BinLoad2.tareNoDelay();
-
-      BinLoad3.tareNoDelay();
-
-    } else {
-
-      Serial.println(
-        "STOP ระบบก่อนใช้คำสั่ง t"
-      );
-    }
+    Serial.println();
+    Serial.println("================================");
+    Serial.println("BIN LOAD CELL TARE IS STARTUP ONLY");
+    Serial.println("ถังทั้ง 3 จะไม่ตั้งศูนย์ซ้ำระหว่างทำงาน");
+    Serial.println("กรุณารีสตาร์ต ESP32 หากต้องการตั้งศูนย์ใหม่");
+    Serial.println("================================");
   }
 
   // ===================================================
@@ -1489,7 +1477,7 @@ void readObjectWeight(
         true;
 
       Serial.println(
-        "Object is too light / sorting skipped"
+        "Weight below minimum / ignored for non-metal classification"
       );
     }
 
@@ -1678,14 +1666,43 @@ ObjectType piezoToType(
   }
 
   if (
-    peak <
-    3000
+    peak >=
+    PIEZO_VALID_MIN &&
+    peak <=
+    PLASTIC_MAX
   ) {
 
     return TYPE_PLASTIC;
   }
 
   return TYPE_UNKNOWN;
+}
+
+// =====================================================
+// ALL PIEZO TESTS UNKNOWN
+// =====================================================
+bool allPiezoTestsUnknown(
+  const SensorData &data
+) {
+
+  for (
+    int i = 0;
+    i < PIEZO_TEST_COUNT;
+    i++
+  ) {
+
+    if (
+      piezoToType(
+        data.piezo[i]
+      ) !=
+      TYPE_UNKNOWN
+    ) {
+
+      return false;
+    }
+  }
+
+  return true;
 }
 
 // =====================================================
@@ -1710,7 +1727,35 @@ ObjectType classifyObject(
     return TYPE_UNKNOWN;
   }
 
-  // น้ำหนักต่ำกว่าขั้นต่ำจะไม่เลือกช่องคัดแยก แต่ยังเปิดประตูหลัก
+  // Metal Sensor มีลำดับสูงกว่าเกณฑ์น้ำหนักขั้นต่ำ
+  // โลหะที่เบากว่า 10 กรัมหรือชั่งน้ำหนักไม่สำเร็จยังคงเป็นโลหะ
+  if (
+    data.metalDetected
+  ) {
+
+    return TYPE_METAL;
+  }
+
+  // วัตถุที่ไม่ใช่โลหะและหนักเกินช่วงของแก้วจะไม่เข้าช่องคัดแยก
+  // แต่ยังไม่ถือว่าเกินขีดจำกัดรวมจนกว่าจะเกิน MAX_ACCEPTED_OBJECT_WEIGHT
+  if (
+    data.weightValid &&
+    data.weight >
+    GLASS_WEIGHT_MAX
+  ) {
+
+    Serial.println();
+    Serial.println("================================");
+    Serial.println("GLASS WEIGHT OVER LIMIT");
+    Serial.print("Maximum glass weight = ");
+    Serial.print(GLASS_WEIGHT_MAX, 1);
+    Serial.println(" g");
+
+    return TYPE_UNKNOWN;
+  }
+
+  // น้ำหนักต่ำกว่าขั้นต่ำจะไม่เลือกช่องคัดแยกสำหรับพลาสติก/แก้ว
+  // แต่ยังเปิดประตูหลักเพื่อปล่อยวัตถุออก
   if (
     data.weightUnderLimit
   ) {
@@ -1723,14 +1768,6 @@ ObjectType classifyObject(
     Serial.println(" g");
 
     return TYPE_UNKNOWN;
-  }
-
-  // Metal priority after the object passes the weight limit
-  if (
-    data.metalDetected
-  ) {
-
-    return TYPE_METAL;
   }
 
   int plasticScore = 0;
@@ -1843,7 +1880,9 @@ ObjectType classifyObject(
     // Heavy
     else if (
       data.weight >=
-      HEAVY_WEIGHT_MIN
+      HEAVY_WEIGHT_MIN &&
+      data.weight <=
+      GLASS_WEIGHT_MAX
     ) {
 
       glassScore +=
@@ -3054,25 +3093,19 @@ void setup() {
 
   Serial.println();
 
-  Serial.println(
-    "Plastic Piezo < 3000"
-  );
+  Serial.println("Unknown Piezo < 1000");
+
+  Serial.println("Plastic Piezo = 1000-2999");
 
   Serial.println(
     "Glass Piezo >= 3000"
   );
 
-  Serial.println(
-    "Plastic Weight = 5-100 g"
-  );
+  Serial.println("Plastic Weight = 10-60 g");
 
-  Serial.println(
-    "Glass Weight = 200-2000 g"
-  );
+  Serial.println("Glass Weight = 120-500 g");
 
-  Serial.println(
-    "Reject Weight > 2000 g"
-  );
+  Serial.println("Maximum Accepted Weight = 700 g");
 
   Serial.println();
 
@@ -3080,9 +3113,7 @@ void setup() {
     "s = START / STOP"
   );
 
-  Serial.println(
-    "t = TARE BIN LOAD CELLS"
-  );
+  Serial.println("t = BIN TARE STATUS (STARTUP ONLY)");
 
   Serial.println(
     "w = RESET WI-FI / DEVICE KEY"
@@ -3364,31 +3395,58 @@ void loop() {
       return;
     }
 
+    // Piezo ต้องเป็น UNKNOWN ครบทั้ง 3 ครั้งเท่านั้น
+    // จึงข้ามการชั่งน้ำหนักและสรุป UNKNOWN ทันที
     if (
-      !smartDelay(500)
+      allPiezoTestsUnknown(
+        data
+      )
     ) {
 
-      return;
-    }
+      Serial.println();
+      Serial.println("================================");
+      Serial.println("PIEZO UNKNOWN 3/3");
+      Serial.println("WEIGHT CHECK = SKIPPED");
+      Serial.println("FINAL TYPE = UNKNOWN");
+      Serial.println("================================");
 
-    // =================================================
-    // OBJECT WEIGHT
-    // =================================================
-    readObjectWeight(
-      data
-    );
+      data.result =
+        TYPE_UNKNOWN;
 
-    // =================================================
-    // CLASSIFY
-    // =================================================
-    data.result =
-      classifyObject(
+      printResult(
+        data.result
+      );
+
+    } else {
+
+      // หากมี Piezo อย่างน้อย 1 ครั้งไม่ใช่ UNKNOWN
+      // ให้ตรวจสอบน้ำหนักและรวมคะแนนตามปกติ
+      if (
+        !smartDelay(500)
+      ) {
+
+        return;
+      }
+
+      // ===============================================
+      // OBJECT WEIGHT
+      // ===============================================
+      readObjectWeight(
         data
       );
 
-    printResult(
-      data.result
-    );
+      // ===============================================
+      // CLASSIFY
+      // ===============================================
+      data.result =
+        classifyObject(
+          data
+        );
+
+      printResult(
+        data.result
+      );
+    }
   }
 
   if (
@@ -3404,7 +3462,7 @@ void loop() {
   // ไม่เปิด Sort Gate แต่ยังทำงานต่อเพื่อเปิดประตูหลัก
   // ===================================================
   if (
-    data.weightUnderLimit ||
+    (data.weightUnderLimit && !data.metalDetected) ||
     data.weightOverLimit
   ) {
 

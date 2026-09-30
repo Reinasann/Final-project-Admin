@@ -1,7 +1,10 @@
 <div class="mb-2">
   <div class="flex justify-between text-xs mb-1">
     <span class="text-gray-600 font-medium">{{ label }}</span>
-    <span class="font-bold {% if level >= 90 %}text-red-500{% else %}text-gray-700{% endif %}">{{ level }}%</span>
+    <div class="text-right leading-tight">
+      <div class="font-bold {% if level >= 90 %}text-red-500{% else %}text-gray-700{% endif %}">{{ level }}%</div>
+      <div class="mt-0.5 text-[11px] font-medium text-gray-500">{{ weight|floatformat:"-2u" }} กก.</div>
+    </div>
   </div>
   <div class="w-full bg-gray-100 rounded-full h-2">
     <div class="h-2 rounded-full {{ color }}" style="width:{{ level }}%"></div>

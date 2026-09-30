@@ -238,35 +238,20 @@ bool startMachineFromCloud() {
   return true;
 }
 
-bool tareSelectedBin(HX711_ADC &loadCell, BinData &binData) {
-  if (systemRunning) {
+bool resetBinFromCloud(const String &wasteType) {
+  if (
+    wasteType != "plastic" &&
+    wasteType != "can" &&
+    wasteType != "glass"
+  ) {
     return false;
   }
 
-  loadCell.tareNoDelay();
-  unsigned long startedAt = millis();
-  while (millis() - startedAt < 10000UL) {
-    serviceAllLoadCells();
-    if (loadCell.getTareStatus()) {
-      binData.weight = 0;
-      return true;
-    }
-    delay(1);
-  }
-  return false;
-}
-
-bool resetBinFromCloud(const String &wasteType) {
-  if (wasteType == "plastic") {
-    return tareSelectedBin(BinLoad1, bin1);
-  }
-  if (wasteType == "can") {
-    return tareSelectedBin(BinLoad2, bin2);
-  }
-  if (wasteType == "glass") {
-    return tareSelectedBin(BinLoad3, bin3);
-  }
-  return false;
+  // รับทราบคำสั่งจาก Cloud แต่ไม่ Tare ถังซ้ำ
+  // BinLoad1-3 ตั้งศูนย์เพียงครั้งเดียวจาก start(..., true) ใน setup()
+  Serial.print("RESET_BIN acknowledged without tare: ");
+  Serial.println(wasteType);
+  return true;
 }
 
 bool applyCloudCommand(const char *commandType, const char *wasteType) {
