@@ -647,9 +647,18 @@ def organization_toggle_status(request):
                 api.enqueue_machine_command(machine, MachineCommand.Command.STOP)
         message = 'ระงับหน่วยงาน ผู้ใช้งาน และเครื่องทั้งหมดในหน่วยงานแล้ว'
     else:
-        organization.status = Organization.Status.ACTIVE
-        organization.save(update_fields=['status'])
-        message = 'เปิดใช้งานหน่วยงานแล้ว ผู้ใช้งานและเครื่องที่ถูกระงับยังต้องเปิดใช้งานแยกกัน'
+        now = timezone.now()
+        with transaction.atomic():
+            organization.status = Organization.Status.ACTIVE
+            organization.save(update_fields=['status'])
+            User.objects.filter(organization=organization).update(
+                status=User.Status.ACTIVE,
+            )
+            Machine.objects.filter(organization=organization).update(
+                status=Machine.Status.OFFLINE,
+                last_updated_at=now,
+            )
+        message = 'เปิดใช้งานหน่วยงาน ผู้ใช้งาน และเครื่องทั้งหมดแล้ว เครื่องจะอยู่ในสถานะปิดจนกว่าจะสั่งเปิด'
     request.session['toast'] = {
         'type': 'success', 'title': 'บันทึกแล้ว', 'message': message,
     }

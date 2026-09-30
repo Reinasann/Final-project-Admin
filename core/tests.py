@@ -333,6 +333,41 @@ class SuspensionAndEscalationTests(TestCase):
         )
         self.assertContains(response, "บัญชีนี้ถูกระงับ", status_code=200)
 
+    def test_organization_reactivation_restores_users_and_unsuspends_machines(self):
+        self.login(self.super_admin)
+        self.client.post(
+            "/organizations/toggle-status/", data={"id": self.organization.id},
+        )
+
+        response = self.client.post(
+            "/organizations/toggle-status/",
+            data={"id": self.organization.id},
+            follow=True,
+        )
+
+        self.organization.refresh_from_db()
+        self.organization_admin.refresh_from_db()
+        self.collector.refresh_from_db()
+        self.machine.refresh_from_db()
+        self.offline_machine.refresh_from_db()
+        self.assertEqual(self.organization.status, Organization.Status.ACTIVE)
+        self.assertEqual(self.organization_admin.status, User.Status.ACTIVE)
+        self.assertEqual(self.collector.status, User.Status.ACTIVE)
+        self.assertEqual(self.machine.status, Machine.Status.OFFLINE)
+        self.assertEqual(self.offline_machine.status, Machine.Status.OFFLINE)
+        self.assertEqual(self.machine.device_commands.count(), 1)
+        self.assertEqual(
+            self.machine.device_commands.latest("id").command,
+            MachineCommand.Command.STOP,
+        )
+        self.assertContains(
+            response,
+            "เปิดใช้งานหน่วยงาน ผู้ใช้งาน และเครื่องทั้งหมดแล้ว",
+        )
+
+        self.client.get("/logout/")
+        self.login(self.organization_admin)
+
     def test_escalation_resets_status_and_reveals_issue_to_super_admin(self):
         self.login(self.organization_admin)
         self.client.post("/issues/escalate/", data={"id": self.issue.id})
