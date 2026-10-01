@@ -129,6 +129,18 @@
         <input type="text" name="location" maxlength="255" placeholder="เช่น อาคาร A ชั้น 1" class="mt-1 h-11 w-full rounded border px-3"/>
         <p class="mt-1 text-xs text-gray-400">หากเว้นว่าง ระบบจะแสดงว่า “ยังไม่ได้ระบุชื่อสถานที่”</p>
       </div>
+      <div class="space-y-3 rounded-xl border border-gray-200 bg-gray-50 p-4 md:col-span-2">
+        <div class="flex flex-wrap items-center justify-between gap-3">
+          <div><h3 class="font-bold text-gray-700">พิกัดเครื่อง</h3><p class="text-xs text-gray-500">กรอกพิกัด หรือคลิกบนแผนที่เพื่อเลือกตำแหน่ง</p></div>
+          <button id="btn-add-current-location" type="button" onclick="useCurrentLocationForAdd()" class="flex items-center gap-2 rounded-lg bg-blue-50 px-3 py-2 text-sm font-medium text-blue-700 hover:bg-blue-100"><i data-lucide="locate-fixed" class="h-4 w-4"></i><span>ใช้ตำแหน่งปัจจุบัน</span></button>
+        </div>
+        <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <div><label class="block text-xs font-bold uppercase text-gray-500">ละติจูด</label><input type="number" name="latitude" id="add-latitude" min="-90" max="90" step="0.000001" placeholder="13.756300" class="mt-1 h-11 w-full rounded border px-3 font-mono"/></div>
+          <div><label class="block text-xs font-bold uppercase text-gray-500">ลองจิจูด</label><input type="number" name="longitude" id="add-longitude" min="-180" max="180" step="0.000001" placeholder="100.501800" class="mt-1 h-11 w-full rounded border px-3 font-mono"/></div>
+        </div>
+        <div id="add-machine-map" class="h-64 w-full overflow-hidden rounded-xl border border-gray-200 bg-gray-100"></div>
+        <p id="add-map-status" class="text-xs text-gray-500">เลือกตำแหน่งบนแผนที่ หรือกดปุ่มใช้ตำแหน่งปัจจุบัน</p>
+      </div>
       <div>
         <label class="block text-xs font-bold uppercase text-gray-500">ผู้ดูแลเครื่อง</label>
         <select name="caretaker_ids" id="add-caretakers" multiple size="4" class="mt-1 w-full rounded border px-3 py-2">{% for caretaker in caretaker_options %}<option value="{{ caretaker.id }}" data-organization-id="{{ caretaker.organization_id }}">{{ caretaker.name }} · {{ caretaker.role_th }}</option>{% endfor %}</select>
@@ -221,6 +233,8 @@ let overviewFilter = 'All';
 let currentMachine = {};
 let machineMap = null;
 let machineMarker = null;
+let addMachineMap = null;
+let addMachineMarker = null;
 let isEditMode = false;
 
 function mountAdminModal(id){
@@ -230,7 +244,15 @@ function mountAdminModal(id){
   document.body.appendChild(modal);
   return modal;
 }
-function openAdminModal(id){mountAdminModal(id)?.classList.remove('hidden');}
+function openAdminModal(id){
+  mountAdminModal(id)?.classList.remove('hidden');
+  if(id==='add-form'){
+    setTimeout(()=>{
+      ensureAddMachineMap()?.invalidateSize();
+      syncAddMapFromInputs(false);
+    },0);
+  }
+}
 function closeAdminModal(id){document.getElementById(id)?.classList.add('hidden');}
 
 ['device-panel','add-form','overview-map-modal','detail-modal'].forEach(mountAdminModal);
@@ -460,6 +482,91 @@ function coordinateNumber(value) {
   return Number.isFinite(number) ? number : null;
 }
 
+function ensureAddMachineMap() {
+  if (addMachineMap || !window.L) return addMachineMap;
+  addMachineMap = L.map('add-machine-map').setView(defaultMapCenter, 6);
+  L.tileLayer(baseMapTileUrl, baseMapTileOptions).addTo(addMachineMap);
+  addMachineMap.on('click', event => {
+    setAddCoordinateInputs(event.latlng.lat, event.latlng.lng, true);
+    setAddMapStatus('เลือกพิกัดจากแผนที่แล้ว กดบันทึกเพื่อยืนยัน', false);
+  });
+  return addMachineMap;
+}
+
+function setAddMapStatus(message, isError) {
+  const status = document.getElementById('add-map-status');
+  if (!status) return;
+  status.textContent = message;
+  status.className = `text-xs ${isError ? 'text-red-600' : 'text-gray-500'}`;
+}
+
+function showAddMapPosition(latitude, longitude, zoom = 17) {
+  const map = ensureAddMachineMap();
+  if (!map) {
+    setAddMapStatus('ไม่สามารถโหลดแผนที่ได้ กรุณาตรวจสอบการเชื่อมต่ออินเทอร์เน็ต', true);
+    return;
+  }
+  if (addMachineMarker) {
+    addMachineMarker.remove();
+    addMachineMarker = null;
+  }
+  if (latitude === null || longitude === null) {
+    map.setView(defaultMapCenter, 6);
+    return;
+  }
+  addMachineMarker = L.marker([latitude, longitude]).addTo(map);
+  map.setView([latitude, longitude], zoom);
+}
+
+function setAddCoordinateInputs(latitude, longitude, moveMap) {
+  const formattedLatitude = Number(latitude).toFixed(6);
+  const formattedLongitude = Number(longitude).toFixed(6);
+  document.getElementById('add-latitude').value = formattedLatitude;
+  document.getElementById('add-longitude').value = formattedLongitude;
+  if (moveMap) showAddMapPosition(Number(formattedLatitude), Number(formattedLongitude));
+}
+
+function syncAddMapFromInputs(showMessage = true) {
+  const latitude = coordinateNumber(document.getElementById('add-latitude')?.value);
+  const longitude = coordinateNumber(document.getElementById('add-longitude')?.value);
+  if (latitude !== null && longitude !== null) {
+    showAddMapPosition(latitude, longitude);
+    if (showMessage) setAddMapStatus('ปรับพิกัดด้วยตัวเลขแล้ว กดบันทึกเพื่อยืนยัน', false);
+  } else if (latitude === null && longitude === null) {
+    showAddMapPosition(null, null);
+  }
+}
+
+function useCurrentLocationForAdd() {
+  if (!navigator.geolocation) {
+    setAddMapStatus('เบราว์เซอร์นี้ไม่รองรับการอ่านตำแหน่งปัจจุบัน', true);
+    return;
+  }
+  const button = document.getElementById('btn-add-current-location');
+  button.disabled = true;
+  button.classList.add('opacity-60');
+  setAddMapStatus('กำลังค้นหาตำแหน่งปัจจุบัน…', false);
+  navigator.geolocation.getCurrentPosition(
+    position => {
+      setAddCoordinateInputs(position.coords.latitude, position.coords.longitude, true);
+      setAddMapStatus(`พบตำแหน่งแล้ว (ความแม่นยำประมาณ ${Math.round(position.coords.accuracy)} เมตร) กดบันทึกเพื่อยืนยัน`, false);
+      button.disabled = false;
+      button.classList.remove('opacity-60');
+    },
+    error => {
+      const messages = {
+        1: 'ไม่ได้รับอนุญาตให้เข้าถึงตำแหน่ง กรุณาอนุญาต Location และเปิดผ่าน HTTPS หรือ localhost',
+        2: 'ไม่สามารถระบุตำแหน่งปัจจุบันได้',
+        3: 'ค้นหาตำแหน่งนานเกินกำหนด กรุณาลองใหม่',
+      };
+      setAddMapStatus(messages[error.code] || 'เกิดข้อผิดพลาดขณะค้นหาตำแหน่ง', true);
+      button.disabled = false;
+      button.classList.remove('opacity-60');
+    },
+    {enableHighAccuracy: true, timeout: 15000, maximumAge: 0},
+  );
+}
+
 function ensureMachineMap() {
   if (machineMap || !window.L) return machineMap;
   machineMap = L.map('machine-map').setView(defaultMapCenter, 6);
@@ -638,6 +745,8 @@ function syncMapFromInputs() {
 
 document.getElementById('edit-latitude').addEventListener('change', syncMapFromInputs);
 document.getElementById('edit-longitude').addEventListener('change', syncMapFromInputs);
+document.getElementById('add-latitude').addEventListener('change', syncAddMapFromInputs);
+document.getElementById('add-longitude').addEventListener('change', syncAddMapFromInputs);
 const addOrganizationSelect = document.getElementById('add-organization');
 const addCaretakerSelect = document.getElementById('add-caretakers');
 if (addOrganizationSelect && addCaretakerSelect) {

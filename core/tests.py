@@ -112,6 +112,8 @@ class AdminAjaxNavigationTests(TestCase):
         response = self.client.get("/organizations/")
 
         self.assertContains(response, 'id="toast-container" class="fixed top-5 right-5 z-[200]')
+        self.assertContains(response, 'style="z-index:9999" role="status"')
+        self.assertContains(response, "toast.style.zIndex='9999'")
         self.assertContains(response, "ไม่พบหน้าหรือข้อมูลที่ต้องการ กรุณาโหลดหน้าใหม่แล้วลองอีกครั้ง")
         self.assertNotContains(response, "ไม่สามารถโหลดข้อมูลได้ (${response.status})")
 
@@ -522,6 +524,9 @@ class UserManagementPermissionTests(TestCase):
         organization_cell = html[organization_cell_start:role_cell_start]
         role_cell = html[role_cell_start:next_cell_start]
         self.assertIn('name="organization_id"', organization_cell)
+        self.assertIn('action="/users/action/"', organization_cell)
+        self.assertIn('data-admin-id="OA200"', organization_cell)
+        self.assertIn("สลับกับแอดมินเดิม", organization_cell)
         self.assertNotIn('name="organization_id"', role_cell)
         self.assertIn("แอดมินหน่วยงาน", role_cell)
 
@@ -552,7 +557,7 @@ class UserManagementPermissionTests(TestCase):
         self.assertFalse(User.objects.filter(email="duplicate-admin@example.com").exists())
         self.assertContains(response, "หนึ่งหน่วยงานมีแอดมินหน่วยงานได้เพียง 1 คน")
 
-    def test_super_admin_cannot_move_admin_to_an_occupied_organization(self):
+    def test_super_admin_swaps_admins_when_target_organization_is_occupied(self):
         self.login(self.super_admin.email)
 
         response = self.client.post("/users/action/", data={
@@ -562,8 +567,26 @@ class UserManagementPermissionTests(TestCase):
         }, follow=True)
 
         self.organization_admin_a.refresh_from_db()
-        self.assertEqual(self.organization_admin_a.organization, self.organization_a)
-        self.assertContains(response, "หน่วยงานที่เลือกมีแอดมินหน่วยงานอยู่แล้ว")
+        self.organization_admin_b.refresh_from_db()
+        self.assertEqual(self.organization_admin_a.organization, self.organization_b)
+        self.assertEqual(self.organization_admin_b.organization, self.organization_a)
+        self.assertContains(response, "ย้าย Admin A ไปยัง Organization B")
+        self.assertContains(response, "ย้าย Admin B ไปยัง Organization A แล้ว")
+
+    def test_super_admin_can_move_existing_admin_to_available_organization(self):
+        self.login(self.super_admin.email)
+
+        response = self.client.post("/users/action/", data={
+            "id": self.organization_admin_a.id,
+            "action": "role",
+            "organization_id": self.organization_c.id,
+            "return_view": "admins",
+        }, follow=True)
+
+        self.assertRedirects(response, "/users/")
+        self.organization_admin_a.refresh_from_db()
+        self.assertEqual(self.organization_admin_a.organization, self.organization_c)
+        self.assertContains(response, "ย้ายแอดมินหน่วยงานไปยัง Organization C แล้ว")
 
     def test_organization_admin_sees_and_adds_collectors_only_in_own_organization(self):
         self.login(self.organization_admin_a.email)
@@ -1624,6 +1647,10 @@ class ApiTests(TestCase):
         self.assertContains(page_response, 'input type="text" name="device_serial"')
         self.assertContains(page_response, 'name="api_key" required')
         self.assertContains(page_response, 'name="location"')
+        self.assertContains(page_response, 'name="latitude" id="add-latitude"')
+        self.assertContains(page_response, 'name="longitude" id="add-longitude"')
+        self.assertContains(page_response, 'id="add-machine-map"')
+        self.assertContains(page_response, 'onclick="useCurrentLocationForAdd()"')
         self.assertNotContains(page_response, 'select name="device_serial"')
 
         response = self.client.post("/machines/add/", data={
@@ -1631,6 +1658,8 @@ class ApiTests(TestCase):
             "api_key": "organization-device-secret",
             "name": "",
             "location": "",
+            "latitude": "19.9105004",
+            "longitude": "99.8406004",
             "caretaker_ids": [organization_admin.id],
         })
 
@@ -1639,6 +1668,8 @@ class ApiTests(TestCase):
         self.assertEqual(machine.organization, self.organization)
         self.assertEqual(machine.name, "ยังไม่ระบุชื่อ")
         self.assertEqual(machine.location, "")
+        self.assertEqual(str(machine.latitude), "19.910500")
+        self.assertEqual(str(machine.longitude), "99.840600")
         self.assertEqual(machine.status, Machine.Status.OFFLINE)
         self.assertEqual(machine.bins.count(), 3)
         self.assertSetEqual(set(machine.caretakers.all()), {organization_admin})
@@ -1646,6 +1677,16 @@ class ApiTests(TestCase):
 
         page_response = self.client.get("/machines/")
         self.assertContains(page_response, "ยังไม่ได้ระบุชื่อสถานที่")
+
+        invalid_response = self.client.post("/machines/add/", data={
+            "device_serial": "ESP32-SR-098",
+            "api_key": "organization-device-secret-2",
+            "latitude": "19.910500",
+            "longitude": "",
+        }, follow=True)
+        self.assertRedirects(invalid_response, "/machines/")
+        self.assertFalse(Machine.objects.filter(device_id="ESP32-SR-098").exists())
+        self.assertContains(invalid_response, "กรุณาระบุละติจูดและลองจิจูดให้ครบ")
 
     def test_admin_can_choose_and_save_machine_coordinates(self):
         login_response = self.client.post("/", data={

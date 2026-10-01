@@ -132,15 +132,15 @@
             </td>
             <td class="p-4 text-sm text-gray-500" data-user-organization-cell>
               {% if is_system_admin and user.can_manage %}
-              <form id="form-role-{{ user.id }}" method="post" action="/users/action/" class="flex flex-wrap items-center gap-2">
+              <form id="form-role-{{ user.id }}" method="post" action="{% url 'user_action' %}" class="flex flex-wrap items-center gap-2">
                 {% csrf_token %}
                 <input type="hidden" name="id" value="{{ user.id }}"/>
                 <input type="hidden" name="action" value="role"/>
                 <input type="hidden" name="return_view" value="{{ view_scope }}"/>
                 <select name="organization_id" class="border rounded px-2 py-1 text-sm">
-                  {% for org in admin_organizations %}{% if not org.admin_id or org.admin_id == user.id %}<option value="{{ org.id }}" {% if user.organization_id == org.id %}selected{% endif %}>{{ org.name }}</option>{% endif %}{% endfor %}
+                  {% for org in admin_organizations %}<option value="{{ org.id }}" data-admin-id="{{ org.admin_id }}" {% if user.organization_id == org.id %}selected{% endif %}>{{ org.name }}{% if org.admin_id and org.admin_id != user.id %} (สลับกับแอดมินเดิม){% endif %}</option>{% endfor %}
                 </select>
-                <button type="button" onclick="showConfirm('ยืนยันการแก้ไข','ย้ายแอดมินไปยังหน่วยงานที่เลือกหรือไม่?','form-role-{{ user.id }}')" class="text-green-600 hover:bg-green-100 p-1 rounded" aria-label="บันทึกหน่วยงาน">
+                <button type="button" onclick="confirmAdminOrganizationChange('form-role-{{ user.id }}')" class="text-green-600 hover:bg-green-100 p-1 rounded" aria-label="บันทึกหน่วยงาน">
                   <i data-lucide="check-circle" class="w-4 h-4"></i>
                 </button>
               </form>
@@ -158,7 +158,7 @@
                 <span data-account-status-text>{% if user.status == 'Active' %}ใช้งาน{% else %}ระงับ{% endif %}</span>
               </span>
                 {% if user.can_manage %}
-                <form method="post" action="/users/action/" class="flex items-center gap-2">
+                <form method="post" action="{% url 'user_action' %}" class="flex items-center gap-2">
                   {% csrf_token %}
                   <input type="hidden" name="id" value="{{ user.id }}"/>
                   <input type="hidden" name="action" value="suspend"/>
@@ -185,6 +185,17 @@
 </div>
 
 <script>
+function confirmAdminOrganizationChange(formId){
+  const form=document.getElementById(formId);
+  const option=form.querySelector('[name="organization_id"] option:checked');
+  const userId=form.querySelector('[name="id"]').value;
+  const swapsAdmin=option?.dataset.adminId&&option.dataset.adminId!==userId;
+  const organizationName=option?.textContent.replace(' (สลับกับแอดมินเดิม)','')||'ที่เลือก';
+  const message=swapsAdmin
+    ? `หน่วยงาน ${organizationName} มีแอดมินอยู่แล้ว ระบบจะสลับหน่วยงานของแอดมินทั้งสองคน ยืนยันหรือไม่?`
+    : `ย้ายแอดมินไปยังหน่วยงาน ${organizationName} หรือไม่?`;
+  showConfirm('ยืนยันการเปลี่ยนหน่วยงาน',message,formId);
+}
 function toggleNewUserPassword(){
   const input=document.getElementById('new-user-password');
   const icon=document.getElementById('new-user-password-icon');
@@ -201,6 +212,7 @@ function showAccountStatusMessage(message,isError=false){
     toast.id='account-status-message';
     toast.setAttribute('role','status');
     toast.className='fixed right-5 top-5 z-[200] rounded-xl px-4 py-3 text-sm font-medium text-white shadow-lg';
+    toast.style.zIndex='9999';
     document.body.appendChild(toast);
   }
   toast.classList.toggle('bg-red-600',isError);

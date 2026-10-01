@@ -70,7 +70,7 @@
   </div>
 </div>
 {% if toast %}
-<div id="toast-container" class="fixed top-5 right-5 z-[200] flex flex-col gap-3 no-print" role="status" aria-live="polite">
+<div id="toast-container" class="fixed top-5 right-5 z-[200] flex flex-col gap-3 no-print" style="z-index:9999" role="status" aria-live="polite">
   <div class="min-w-[300px] p-4 rounded-xl shadow-lg border-l-4 flex items-start gap-3 bg-white {% if toast.type == 'success' %}border-green-500{% elif toast.type == 'error' %}border-red-500{% else %}border-blue-500{% endif %}">
     <div class="mt-0.5 {% if toast.type == 'success' %}text-green-500{% elif toast.type == 'error' %}text-red-500{% else %}text-blue-500{% endif %}"><i data-lucide="info" class="w-5 h-5"></i></div>
     <div class="flex-1"><h4 class="font-bold text-sm">{{ toast.title }}</h4><p class="text-xs text-gray-500 mt-1">{{ toast.message }}</p></div>
@@ -215,6 +215,7 @@ function showAdminAjaxError(message){
   const toast=document.createElement('div');
   toast.id='toast-container';
   toast.className='fixed top-5 right-5 z-[200] rounded-xl border-l-4 border-red-500 bg-white px-4 py-3 text-sm text-red-700 shadow-lg no-print';
+  toast.style.zIndex='9999';
   toast.setAttribute('role','alert');
   toast.textContent=adminReadableErrorMessage(message);
   document.body.appendChild(toast);
@@ -305,6 +306,7 @@ async function adminApplyAjaxResponse(html,responseUrl,historyMode,{preserveScro
   }
   document.getElementById('toast-container')?.remove();
   if(toast){
+    toast.style.zIndex='9999';
     document.body.appendChild(document.adoptNode(toast));
     window.setTimeout(()=>toast.remove(),4000);
   }

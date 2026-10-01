@@ -898,6 +898,16 @@ def machine_add(request):
     name = request.POST.get('name', '').strip() or 'ยังไม่ระบุชื่อ'
     location = request.POST.get('location', '').strip()
     caretaker_ids = request.POST.getlist('caretaker_ids')
+    coordinates_valid = True
+    try:
+        latitude = parse_coordinate(request.POST.get('latitude'), -90, 90)
+        longitude = parse_coordinate(request.POST.get('longitude'), -180, 180)
+        if (latitude is None) != (longitude is None):
+            coordinates_valid = False
+    except ValueError:
+        latitude = None
+        longitude = None
+        coordinates_valid = False
 
     organization = Organization.objects.filter(pk=organization_id).first()
     caretakers, caretakers_valid = valid_machine_caretakers(organization, caretaker_ids)
@@ -922,6 +932,12 @@ def machine_add(request):
             'type': 'error',
             'title': 'ผู้ดูแลเครื่องไม่ถูกต้อง',
             'message': 'กรุณาเลือกผู้ดูแลเครื่องที่กำลังใช้งานและอยู่ในหน่วยงานเดียวกับเครื่อง',
+        }
+    elif not coordinates_valid:
+        request.session['toast'] = {
+            'type': 'error',
+            'title': 'พิกัดไม่ถูกต้อง',
+            'message': 'กรุณาระบุละติจูดและลองจิจูดให้ครบ โดยละติจูดต้องอยู่ระหว่าง -90 ถึง 90 และลองจิจูดระหว่าง -180 ถึง 180',
         }
     else:
         with transaction.atomic():
@@ -970,6 +986,8 @@ def machine_add(request):
                     code=code,
                     name=name,
                     location=location,
+                    latitude=latitude,
+                    longitude=longitude,
                     organization=organization,
                     device=device,
                     status=Machine.Status.OFFLINE,
@@ -1341,28 +1359,44 @@ def user_action(request):
         elif action == 'role':
             if system_admin:
                 organization_id = request.POST.get('organization_id', user.organization_id)
-                if not Organization.objects.filter(pk=organization_id).exists():
+                target_organization = Organization.objects.filter(pk=organization_id).first()
+                if target_organization is None:
                     request.session['toast'] = {
                         'type': 'error', 'title': 'ข้อมูลไม่ถูกต้อง',
                         'message': 'ไม่พบหน่วยงานที่เลือก',
                     }
                     return redirect(redirect_url)
-                if User.objects.filter(
+                target_admin = User.objects.filter(
                     organization_id=organization_id,
                     role=User.Role.ORGANIZATION_ADMIN,
-                ).exclude(pk=user.pk).exists():
+                ).exclude(pk=user.pk).first()
+                if target_admin and not user.organization_id:
                     request.session['toast'] = {
                         'type': 'error',
                         'title': 'ย้ายหน่วยงานไม่ได้',
-                        'message': 'หน่วยงานที่เลือกมีแอดมินหน่วยงานอยู่แล้ว หนึ่งหน่วยงานมีแอดมินได้เพียง 1 คน',
+                        'message': 'ไม่สามารถสลับหน่วยงานได้ เนื่องจากแอดมินต้นทางยังไม่ได้อยู่ในหน่วยงาน',
                     }
                     return redirect(redirect_url)
-                user.role = User.Role.ORGANIZATION_ADMIN
-                user.organization_id = organization_id
+                source_organization = user.organization
+                with transaction.atomic():
+                    if target_admin:
+                        target_admin.organization = source_organization
+                        target_admin.save(update_fields=['organization'])
+                    user.role = User.Role.ORGANIZATION_ADMIN
+                    user.organization = target_organization
+                    user.save(update_fields=['role', 'organization'])
+                if target_admin:
+                    message = (
+                        f'ย้าย {user.name} ไปยัง {target_organization.name} และย้าย '
+                        f'{target_admin.name} ไปยัง {source_organization.name} แล้ว'
+                    )
+                else:
+                    message = f'ย้ายแอดมินหน่วยงานไปยัง {target_organization.name} แล้ว'
             else:
                 user.role = User.Role.COLLECTOR
-            user.save(update_fields=['role', 'organization'])
-            request.session['toast'] = {'type': 'success', 'title': 'บันทึกแล้ว', 'message': 'แก้ไขผู้ใช้งานแล้ว'}
+                user.save(update_fields=['role'])
+                message = 'แก้ไขผู้ใช้งานแล้ว'
+            request.session['toast'] = {'type': 'success', 'title': 'บันทึกแล้ว', 'message': message}
     return redirect(redirect_url)
 
 
