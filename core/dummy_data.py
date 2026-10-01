@@ -50,7 +50,7 @@ def get_machines(session):
         )
         level = lambda waste_type: float(bins[waste_type].current_level_percent) if waste_type in bins else 0
         weight = lambda waste_type: float(bins[waste_type].current_weight_kg) if waste_type in bins else 0
-        result.append({'id': row.id, 'code': row.code, 'name': row.name, 'location': row.location,
+        result.append({'id': row.id, 'code': row.code, 'name': row.name or 'ยังไม่ระบุชื่อ', 'location': row.location,
                        'status': row.status, 'plastic': level('plastic'), 'glass': level('glass'),
                        'can': level('can'), 'plastic_weight': weight('plastic'),
                        'glass_weight': weight('glass'), 'can_weight': weight('can'),

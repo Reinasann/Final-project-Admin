@@ -103,6 +103,18 @@ class AdminAjaxNavigationTests(TestCase):
         self.assertContains(response, 'data-admin-page-portal="true"')
         self.assertContains(response, 'id="confirm-modal" class="hidden fixed inset-0 z-[150]')
 
+    def test_toasts_render_above_modals_and_http_errors_are_readable(self):
+        self.client.post(
+            "/organizations/add/",
+            data={"name": "", "card_color": "#2563eb"},
+        )
+
+        response = self.client.get("/organizations/")
+
+        self.assertContains(response, 'id="toast-container" class="fixed top-5 right-5 z-[200]')
+        self.assertContains(response, "ไม่พบหน้าหรือข้อมูลที่ต้องการ กรุณาโหลดหน้าใหม่แล้วลองอีกครั้ง")
+        self.assertNotContains(response, "ไม่สามารถโหลดข้อมูลได้ (${response.status})")
+
     def test_machine_cards_show_each_bin_weight_below_its_percentage(self):
         machine = Machine.objects.create(
             id="M-WEIGHT-1",
@@ -442,6 +454,9 @@ class UserManagementPermissionTests(TestCase):
         self.organization_b = Organization.objects.create(
             id="org-b", name="Organization B", card_color="#16a34a",
         )
+        self.organization_c = Organization.objects.create(
+            id="org-c", name="Organization C", card_color="#f97316",
+        )
         self.super_admin = self.create_user(
             "SA100", None, "Super Admin", "super@example.com", User.Role.SUPER_ADMIN,
         )
@@ -516,13 +531,39 @@ class UserManagementPermissionTests(TestCase):
             "name": "New Organization Admin",
             "email": "new-admin@example.com",
             "password": "new-password",
-            "organization_id": self.organization_b.id,
+            "organization_id": self.organization_c.id,
             "role": "Collector",
         })
         self.assertRedirects(response, "/users/")
         created = User.objects.get(email="new-admin@example.com")
         self.assertEqual(created.role, User.Role.ORGANIZATION_ADMIN)
-        self.assertEqual(created.organization, self.organization_b)
+        self.assertEqual(created.organization, self.organization_c)
+
+    def test_super_admin_cannot_add_a_second_admin_to_an_organization(self):
+        self.login(self.super_admin.email)
+
+        response = self.client.post("/users/add/", data={
+            "name": "Duplicate Organization Admin",
+            "email": "duplicate-admin@example.com",
+            "password": "new-password",
+            "organization_id": self.organization_a.id,
+        }, follow=True)
+
+        self.assertFalse(User.objects.filter(email="duplicate-admin@example.com").exists())
+        self.assertContains(response, "หนึ่งหน่วยงานมีแอดมินหน่วยงานได้เพียง 1 คน")
+
+    def test_super_admin_cannot_move_admin_to_an_occupied_organization(self):
+        self.login(self.super_admin.email)
+
+        response = self.client.post("/users/action/", data={
+            "id": self.organization_admin_a.id,
+            "action": "role",
+            "organization_id": self.organization_b.id,
+        }, follow=True)
+
+        self.organization_admin_a.refresh_from_db()
+        self.assertEqual(self.organization_admin_a.organization, self.organization_a)
+        self.assertContains(response, "หน่วยงานที่เลือกมีแอดมินหน่วยงานอยู่แล้ว")
 
     def test_organization_admin_sees_and_adds_collectors_only_in_own_organization(self):
         self.login(self.organization_admin_a.email)
@@ -1493,6 +1534,13 @@ class ApiTests(TestCase):
         self.assertContains(response, "พร้อมเลือกตอนเพิ่มเครื่อง")
         self.assertContains(response, 'name="caretaker_ids"')
         self.assertContains(response, 'id="add-caretakers" multiple')
+        self.assertContains(
+            response,
+            '<option value="ESP32-SR-005">ESP32-SR-005</option>',
+            html=True,
+        )
+        self.assertNotContains(response, 'name="firmware_version"')
+        self.assertNotContains(response, 'name="model"')
 
         second_caretaker = User.objects.create(
             id="U005",
@@ -1553,6 +1601,51 @@ class ApiTests(TestCase):
         self.assertFalse(telemetry_response.json()["auto_online"])
         machine.refresh_from_db()
         self.assertEqual(machine.status, Machine.Status.OFFLINE)
+
+    def test_organization_admin_adds_machine_with_manual_device_credentials(self):
+        organization_admin = User(
+            id="OA-MACHINE",
+            organization=self.organization,
+            name="Organization Machine Admin",
+            email="organization-machine-admin@example.com",
+            role=User.Role.ORGANIZATION_ADMIN,
+            status=User.Status.ACTIVE,
+        )
+        organization_admin.set_password("password123")
+        organization_admin.save()
+        login_response = self.client.post("/", data={
+            "email": organization_admin.email,
+            "password": "password123",
+        })
+        self.assertRedirects(login_response, "/dashboard/")
+
+        page_response = self.client.get("/machines/")
+        self.assertContains(page_response, "เพิ่มเครื่อง")
+        self.assertContains(page_response, 'input type="text" name="device_serial"')
+        self.assertContains(page_response, 'name="api_key" required')
+        self.assertContains(page_response, 'name="location"')
+        self.assertNotContains(page_response, 'select name="device_serial"')
+
+        response = self.client.post("/machines/add/", data={
+            "device_serial": "ESP32-SR-099",
+            "api_key": "organization-device-secret",
+            "name": "",
+            "location": "",
+            "caretaker_ids": [organization_admin.id],
+        })
+
+        self.assertRedirects(response, "/machines/")
+        machine = Machine.objects.get(device_id="ESP32-SR-099")
+        self.assertEqual(machine.organization, self.organization)
+        self.assertEqual(machine.name, "ยังไม่ระบุชื่อ")
+        self.assertEqual(machine.location, "")
+        self.assertEqual(machine.status, Machine.Status.OFFLINE)
+        self.assertEqual(machine.bins.count(), 3)
+        self.assertSetEqual(set(machine.caretakers.all()), {organization_admin})
+        self.assertTrue(machine.device.check_api_key("organization-device-secret"))
+
+        page_response = self.client.get("/machines/")
+        self.assertContains(page_response, "ยังไม่ได้ระบุชื่อสถานที่")
 
     def test_admin_can_choose_and_save_machine_coordinates(self):
         login_response = self.client.post("/", data={

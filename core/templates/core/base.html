@@ -70,7 +70,7 @@
   </div>
 </div>
 {% if toast %}
-<div id="toast-container" class="fixed top-5 right-5 z-50 flex flex-col gap-3 no-print">
+<div id="toast-container" class="fixed top-5 right-5 z-[200] flex flex-col gap-3 no-print" role="status" aria-live="polite">
   <div class="min-w-[300px] p-4 rounded-xl shadow-lg border-l-4 flex items-start gap-3 bg-white {% if toast.type == 'success' %}border-green-500{% elif toast.type == 'error' %}border-red-500{% else %}border-blue-500{% endif %}">
     <div class="mt-0.5 {% if toast.type == 'success' %}text-green-500{% elif toast.type == 'error' %}text-red-500{% else %}text-blue-500{% endif %}"><i data-lucide="info" class="w-5 h-5"></i></div>
     <div class="flex-1"><h4 class="font-bold text-sm">{{ toast.title }}</h4><p class="text-xs text-gray-500 mt-1">{{ toast.message }}</p></div>
@@ -203,15 +203,31 @@ function finishAdminAjaxProgress(){
     progress.setAttribute('aria-valuenow','0');
   },220);
 }
+function adminReadableErrorMessage(message){
+  const decoder=document.createElement('textarea');
+  decoder.innerHTML=String(message||'');
+  const decoded=decoder.value.trim();
+  if(/^404(?:\s|$)/.test(decoded))return adminHttpErrorMessage(404);
+  return decoded||'ไม่สามารถดำเนินการได้ กรุณาลองใหม่อีกครั้ง';
+}
 function showAdminAjaxError(message){
   document.getElementById('toast-container')?.remove();
   const toast=document.createElement('div');
   toast.id='toast-container';
-  toast.className='fixed top-5 right-5 z-[130] rounded-xl border-l-4 border-red-500 bg-white px-4 py-3 text-sm text-red-700 shadow-lg no-print';
+  toast.className='fixed top-5 right-5 z-[200] rounded-xl border-l-4 border-red-500 bg-white px-4 py-3 text-sm text-red-700 shadow-lg no-print';
   toast.setAttribute('role','alert');
-  toast.textContent=message;
+  toast.textContent=adminReadableErrorMessage(message);
   document.body.appendChild(toast);
   window.setTimeout(()=>toast.remove(),4000);
+}
+function adminHttpErrorMessage(status){
+  if(status===400)return 'ข้อมูลที่ส่งไม่ถูกต้อง กรุณาตรวจสอบแล้วลองอีกครั้ง';
+  if(status===401)return 'กรุณาเข้าสู่ระบบใหม่แล้วลองอีกครั้ง';
+  if(status===403)return 'บัญชีนี้ไม่มีสิทธิ์ดำเนินการรายการนี้';
+  if(status===404)return 'ไม่พบหน้าหรือข้อมูลที่ต้องการ กรุณาโหลดหน้าใหม่แล้วลองอีกครั้ง';
+  if(status===409)return 'ข้อมูลนี้ถูกเปลี่ยนแปลงหรือมีอยู่แล้ว กรุณาโหลดหน้าใหม่';
+  if(status>=500)return 'ระบบขัดข้องชั่วคราว กรุณาลองใหม่อีกครั้ง';
+  return 'ไม่สามารถดำเนินการได้ กรุณาตรวจสอบข้อมูลแล้วลองอีกครั้ง';
 }
 function updateAdminNavigation(activeTab){
   document.querySelectorAll('[data-admin-nav-link]').forEach(link=>{
@@ -311,7 +327,7 @@ async function adminAjaxNavigate(url,{method='GET',body=null,historyMode='push',
       method,body,signal:controller.signal,
       headers:{'X-Requested-With':'XMLHttpRequest','Accept':'text/html'},
     });
-    if(!response.ok)throw new Error(`ไม่สามารถโหลดข้อมูลได้ (${response.status})`);
+    if(!response.ok)throw new Error(adminHttpErrorMessage(response.status));
     const html=await response.text();
     return await adminApplyAjaxResponse(html,response.url,historyMode,{preserveScroll});
   }catch(error){

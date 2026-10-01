@@ -891,21 +891,31 @@ def valid_machine_caretakers(organization, caretaker_ids):
 @login_required
 @require_POST
 def machine_add(request):
-    if not is_system_admin(request):
-        request.session['toast'] = {'type': 'error', 'title': 'ไม่มีสิทธิ์', 'message': 'แอดมินหน่วยงานไม่สามารถเพิ่มเครื่องเองได้'}
-        return redirect('machines')
-
-    organization_id = request.POST.get('organization_id')
+    system_admin = is_system_admin(request)
+    organization_id = request.POST.get('organization_id') if system_admin else current_org_id(request)
     device_serial = request.POST.get('device_serial', '').strip().upper()
-    name = request.POST.get('name', '').strip()
+    provided_api_key = request.POST.get('api_key', '').strip()
+    name = request.POST.get('name', '').strip() or 'ยังไม่ระบุชื่อ'
     location = request.POST.get('location', '').strip()
     caretaker_ids = request.POST.getlist('caretaker_ids')
 
     organization = Organization.objects.filter(pk=organization_id).first()
     caretakers, caretakers_valid = valid_machine_caretakers(organization, caretaker_ids)
-    if not name or not organization:
+    if not organization:
         request.session['toast'] = {
-            'type': 'error', 'title': 'ข้อมูลไม่ครบ', 'message': 'กรุณาระบุชื่อเครื่องและหน่วยงาน',
+            'type': 'error', 'title': 'ไม่พบหน่วยงาน', 'message': 'ไม่พบหน่วยงานสำหรับเครื่องที่ต้องการเพิ่ม',
+        }
+    elif not re.fullmatch(r'[A-Z0-9._-]{3,30}', device_serial):
+        request.session['toast'] = {
+            'type': 'error',
+            'title': 'Serial Number ไม่ถูกต้อง',
+            'message': 'กรุณากรอก Serial Number จำนวน 3-30 ตัว โดยใช้ตัวอักษร ตัวเลข จุด ขีดกลาง หรือขีดล่าง',
+        }
+    elif not system_admin and len(provided_api_key) < 8:
+        request.session['toast'] = {
+            'type': 'error',
+            'title': 'รหัสเชื่อมต่อไม่ถูกต้อง',
+            'message': 'กรุณากรอกรหัสเชื่อมต่ออย่างน้อย 8 ตัวอักษรให้ตรงกับรหัสที่ตั้งค่าในอุปกรณ์',
         }
     elif not caretakers_valid:
         request.session['toast'] = {
@@ -913,25 +923,47 @@ def machine_add(request):
             'title': 'ผู้ดูแลเครื่องไม่ถูกต้อง',
             'message': 'กรุณาเลือกผู้ดูแลเครื่องที่กำลังใช้งานและอยู่ในหน่วยงานเดียวกับเครื่อง',
         }
-    elif not device_serial:
-        request.session['toast'] = {
-            'type': 'error',
-            'title': 'ยังไม่ได้เลือก Serial Number',
-            'message': 'กรุณาลงทะเบียนและเลือก Serial Number ที่พร้อมใช้งานก่อนเพิ่มเครื่อง',
-        }
     else:
         with transaction.atomic():
-            device = MachineInformation.objects.select_for_update().filter(
-                pk=device_serial,
-                hardware_status=MachineInformation.HardwareStatus.AVAILABLE,
-            ).first()
-            if device is None or Machine.objects.filter(device_id=device_serial).exists():
+            device = MachineInformation.objects.select_for_update().filter(pk=device_serial).first()
+            if system_admin and (
+                device is None
+                or device.hardware_status != MachineInformation.HardwareStatus.AVAILABLE
+                or Machine.objects.filter(device_id=device_serial).exists()
+            ):
                 request.session['toast'] = {
                     'type': 'error',
                     'title': 'Serial Number ไม่พร้อมใช้งาน',
                     'message': 'Serial Number นี้ไม่มีในรายการที่เตรียมไว้ หรือถูกผูกกับเครื่องอื่นแล้ว',
                 }
+                device = None
+            elif not system_admin and device is not None and (
+                device.hardware_status != MachineInformation.HardwareStatus.AVAILABLE
+                or Machine.objects.filter(device_id=device_serial).exists()
+            ):
+                request.session['toast'] = {
+                    'type': 'error',
+                    'title': 'Serial Number ถูกใช้งานแล้ว',
+                    'message': 'Serial Number นี้ถูกผูกกับเครื่องอื่นแล้ว กรุณาตรวจสอบหมายเลขบนอุปกรณ์',
+                }
+                device = None
+            elif not system_admin and device is not None and not device.check_api_key(provided_api_key):
+                request.session['toast'] = {
+                    'type': 'error',
+                    'title': 'รหัสเชื่อมต่อไม่ถูกต้อง',
+                    'message': 'รหัสเชื่อมต่อไม่ตรงกับ Serial Number นี้ กรุณาตรวจสอบข้อมูลบนอุปกรณ์อีกครั้ง',
+                }
+                device = None
             else:
+                if device is None:
+                    device = MachineInformation(
+                        serial_number=device_serial,
+                        model='ESP32',
+                        firmware_version='',
+                        hardware_status=MachineInformation.HardwareStatus.AVAILABLE,
+                    )
+                    device.set_api_key(provided_api_key)
+                    device.save()
                 code = next_machine_code(device_serial)
                 machine = Machine.objects.create(
                     id=f'M{int(time.time() * 1000)}',
@@ -1007,7 +1039,11 @@ def machine_edit(request):
             }
             return redirect('machines')
 
-        machine.name = request.POST.get('name', machine.name).strip() or machine.name
+        machine.name = (
+            request.POST.get('name', machine.name).strip()
+            or machine.name
+            or 'ยังไม่ระบุชื่อ'
+        )
         machine.location = request.POST.get('location', machine.location).strip()
         machine.last_updated_at = timezone.now()
         if coordinates_submitted:
@@ -1175,6 +1211,19 @@ def users_view(request):
     } for u in users]
 
     users_pagination = paginate_admin(request, active)
+    organization_admin_by_org = dict(
+        User.objects.filter(
+            role=User.Role.ORGANIZATION_ADMIN,
+            organization_id__isnull=False,
+        ).values_list('organization_id', 'id')
+    )
+    admin_organizations = [
+        {
+            **organization,
+            'admin_id': organization_admin_by_org.get(organization['id'], ''),
+        }
+        for organization in get_organizations(request.session)
+    ]
     toast = request.session.pop('toast', None)
     return render_admin(request, 'core/users.html', {
         'active_tab': 'users',
@@ -1185,6 +1234,10 @@ def users_view(request):
         'status_filter': status_filter,
         'organization_filter': organization_filter,
         'view_scope': view_scope,
+        'admin_organizations': admin_organizations,
+        'has_available_admin_organization': any(
+            not organization['admin_id'] for organization in admin_organizations
+        ),
         'toast': toast,
     })
 
@@ -1207,6 +1260,15 @@ def user_add(request):
         }
     elif User.objects.filter(email__iexact=email).exists():
         request.session['toast'] = {'type': 'error', 'title': 'ผิดพลาด', 'message': 'อีเมลนี้มีอยู่ในระบบแล้ว'}
+    elif system_admin and User.objects.filter(
+        organization_id=organization_id,
+        role=User.Role.ORGANIZATION_ADMIN,
+    ).exists():
+        request.session['toast'] = {
+            'type': 'error',
+            'title': 'หน่วยงานนี้มีแอดมินแล้ว',
+            'message': 'หนึ่งหน่วยงานมีแอดมินหน่วยงานได้เพียง 1 คน กรุณาเลือกหน่วยงานอื่น',
+        }
     else:
         user = User(
             id=f'U{secrets.token_hex(6).upper()}', name=name, email=email, phone='-',
@@ -1283,6 +1345,16 @@ def user_action(request):
                     request.session['toast'] = {
                         'type': 'error', 'title': 'ข้อมูลไม่ถูกต้อง',
                         'message': 'ไม่พบหน่วยงานที่เลือก',
+                    }
+                    return redirect(redirect_url)
+                if User.objects.filter(
+                    organization_id=organization_id,
+                    role=User.Role.ORGANIZATION_ADMIN,
+                ).exclude(pk=user.pk).exists():
+                    request.session['toast'] = {
+                        'type': 'error',
+                        'title': 'ย้ายหน่วยงานไม่ได้',
+                        'message': 'หน่วยงานที่เลือกมีแอดมินหน่วยงานอยู่แล้ว หนึ่งหน่วยงานมีแอดมินได้เพียง 1 คน',
                     }
                     return redirect(redirect_url)
                 user.role = User.Role.ORGANIZATION_ADMIN

@@ -36,16 +36,17 @@
       {% if is_system_admin %}
       <div>
         <label class="text-xs font-bold text-gray-500 uppercase">หน่วยงาน</label>
-        <select name="organization_id" required class="w-full p-2 rounded border mt-1">
-          {% for org in organizations %}<option value="{{ org.id }}">{{ org.name }}</option>{% endfor %}
+        <select name="organization_id" required class="w-full p-2 rounded border mt-1" {% if not has_available_admin_organization %}disabled{% endif %}>
+          {% for org in admin_organizations %}{% if not org.admin_id %}<option value="{{ org.id }}">{{ org.name }}</option>{% endif %}{% endfor %}
         </select>
+        {% if not has_available_admin_organization %}<p class="mt-1 text-xs text-red-600">ทุกหน่วยงานมีแอดมินแล้ว กรุณาเพิ่มหน่วยงานใหม่ก่อน</p>{% endif %}
       </div>
       {% endif %}
       <div class="md:col-span-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <p class="text-xs text-gray-500">
           {% if is_system_admin %}ผู้ใช้ใหม่จะได้รับสิทธิ์แอดมินของหน่วยงานที่เลือก{% else %}ผู้ใช้ใหม่จะได้รับสิทธิ์ผู้เก็บขยะของ {{ current_org.name }}{% endif %}
         </p>
-        <button type="button" onclick="showConfirm('ยืนยันการเพิ่มผู้ใช้งาน','เพิ่มผู้ใช้งานรายนี้หรือไม่?','form-add-user')" class="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700">บันทึก</button>
+        <button type="button" onclick="showConfirm('ยืนยันการเพิ่มผู้ใช้งาน','เพิ่มผู้ใช้งานรายนี้หรือไม่?','form-add-user')" class="px-4 py-2 bg-green-600 text-white rounded hover:bg-green-700 disabled:cursor-not-allowed disabled:opacity-50" {% if is_system_admin and not has_available_admin_organization %}disabled{% endif %}>บันทึก</button>
       </div>
     </form>
   </div>
@@ -137,7 +138,7 @@
                 <input type="hidden" name="action" value="role"/>
                 <input type="hidden" name="return_view" value="{{ view_scope }}"/>
                 <select name="organization_id" class="border rounded px-2 py-1 text-sm">
-                  {% for org in organizations %}<option value="{{ org.id }}" {% if user.organization_id == org.id %}selected{% endif %}>{{ org.name }}</option>{% endfor %}
+                  {% for org in admin_organizations %}{% if not org.admin_id or org.admin_id == user.id %}<option value="{{ org.id }}" {% if user.organization_id == org.id %}selected{% endif %}>{{ org.name }}</option>{% endif %}{% endfor %}
                 </select>
                 <button type="button" onclick="showConfirm('ยืนยันการแก้ไข','ย้ายแอดมินไปยังหน่วยงานที่เลือกหรือไม่?','form-role-{{ user.id }}')" class="text-green-600 hover:bg-green-100 p-1 rounded" aria-label="บันทึกหน่วยงาน">
                   <i data-lucide="check-circle" class="w-4 h-4"></i>
@@ -199,7 +200,7 @@ function showAccountStatusMessage(message,isError=false){
     toast=document.createElement('div');
     toast.id='account-status-message';
     toast.setAttribute('role','status');
-    toast.className='fixed right-5 top-5 z-[110] rounded-xl px-4 py-3 text-sm font-medium text-white shadow-lg';
+    toast.className='fixed right-5 top-5 z-[200] rounded-xl px-4 py-3 text-sm font-medium text-white shadow-lg';
     document.body.appendChild(toast);
   }
   toast.classList.toggle('bg-red-600',isError);
