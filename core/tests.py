@@ -117,6 +117,13 @@ class AdminAjaxNavigationTests(TestCase):
         self.assertContains(response, "ไม่พบหน้าหรือข้อมูลที่ต้องการ กรุณาโหลดหน้าใหม่แล้วลองอีกครั้ง")
         self.assertNotContains(response, "ไม่สามารถโหลดข้อมูลได้ (${response.status})")
 
+    def test_ajax_form_submission_uses_action_attribute_instead_of_named_input_property(self):
+        response = self.client.get("/users/")
+
+        self.assertContains(response, "const actionUrl=form.getAttribute('action')||window.location.href")
+        self.assertContains(response, "const method=(form.getAttribute('method')||'GET').toUpperCase()")
+        self.assertNotContains(response, "new URL(form.action||window.location.href")
+
     def test_machine_cards_show_each_bin_weight_below_its_percentage(self):
         machine = Machine.objects.create(
             id="M-WEIGHT-1",

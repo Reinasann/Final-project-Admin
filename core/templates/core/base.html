@@ -344,10 +344,11 @@ async function adminAjaxNavigate(url,{method='GET',body=null,historyMode='push',
   }
 }
 function adminAjaxSubmitForm(form,submitter){
-  const method=(form.method||'GET').toUpperCase();
+  const method=(form.getAttribute('method')||'GET').toUpperCase();
   const formData=new FormData(form);
   if(submitter?.name&&!formData.has(submitter.name))formData.append(submitter.name,submitter.value);
-  const url=new URL(form.action||window.location.href,window.location.href);
+  const actionUrl=form.getAttribute('action')||window.location.href;
+  const url=new URL(actionUrl,window.location.href);
   if(method==='GET'){
     url.search='';
     formData.forEach((value,key)=>url.searchParams.append(key,String(value)));
