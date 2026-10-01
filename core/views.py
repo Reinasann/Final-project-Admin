@@ -1182,6 +1182,9 @@ def machine_toggle_suspension(request):
 
 @login_required
 def users_view(request):
+    if request.method == 'POST':
+        return user_action(request)
+
     users = User.objects.select_related('organization').exclude(
         role=User.Role.SUPER_ADMIN,
     ).order_by('-created_at', '-id')

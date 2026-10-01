@@ -132,7 +132,7 @@
             </td>
             <td class="p-4 text-sm text-gray-500" data-user-organization-cell>
               {% if is_system_admin and user.can_manage %}
-              <form id="form-role-{{ user.id }}" method="post" action="{% url 'user_action' %}" class="flex flex-wrap items-center gap-2">
+              <form id="form-role-{{ user.id }}" method="post" action="{% url 'users' %}" class="flex flex-wrap items-center gap-2">
                 {% csrf_token %}
                 <input type="hidden" name="id" value="{{ user.id }}"/>
                 <input type="hidden" name="action" value="role"/>
@@ -158,7 +158,7 @@
                 <span data-account-status-text>{% if user.status == 'Active' %}ใช้งาน{% else %}ระงับ{% endif %}</span>
               </span>
                 {% if user.can_manage %}
-                <form method="post" action="{% url 'user_action' %}" class="flex items-center gap-2">
+                <form method="post" action="{% url 'users' %}" class="flex items-center gap-2">
                   {% csrf_token %}
                   <input type="hidden" name="id" value="{{ user.id }}"/>
                   <input type="hidden" name="action" value="suspend"/>

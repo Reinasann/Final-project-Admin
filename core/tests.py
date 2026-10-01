@@ -524,7 +524,7 @@ class UserManagementPermissionTests(TestCase):
         organization_cell = html[organization_cell_start:role_cell_start]
         role_cell = html[role_cell_start:next_cell_start]
         self.assertIn('name="organization_id"', organization_cell)
-        self.assertIn('action="/users/action/"', organization_cell)
+        self.assertIn('action="/users/"', organization_cell)
         self.assertIn('data-admin-id="OA200"', organization_cell)
         self.assertIn("สลับกับแอดมินเดิม", organization_cell)
         self.assertNotIn('name="organization_id"', role_cell)
@@ -576,7 +576,7 @@ class UserManagementPermissionTests(TestCase):
     def test_super_admin_can_move_existing_admin_to_available_organization(self):
         self.login(self.super_admin.email)
 
-        response = self.client.post("/users/action/", data={
+        response = self.client.post("/users/", data={
             "id": self.organization_admin_a.id,
             "action": "role",
             "organization_id": self.organization_c.id,
