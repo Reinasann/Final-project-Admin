@@ -1652,6 +1652,14 @@ class ApiTests(TestCase):
         self.assertContains(page_response, 'id="add-machine-map"')
         self.assertContains(page_response, 'onclick="useCurrentLocationForAdd()"')
         self.assertNotContains(page_response, 'select name="device_serial"')
+        add_form_html = page_response.content.decode()
+        serial_index = add_form_html.index('name="device_serial"')
+        caretaker_index = add_form_html.index('id="add-caretakers"', serial_index)
+        location_index = add_form_html.index('name="location"', caretaker_index)
+        map_index = add_form_html.index('id="add-machine-map"', location_index)
+        self.assertLess(serial_index, caretaker_index)
+        self.assertLess(caretaker_index, location_index)
+        self.assertLess(location_index, map_index)
 
         response = self.client.post("/machines/add/", data={
             "device_serial": "ESP32-SR-099",

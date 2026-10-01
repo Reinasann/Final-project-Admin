@@ -125,6 +125,11 @@
       </div>
       {% endif %}
       <div class="md:col-span-2">
+        <label class="block text-xs font-bold uppercase text-gray-500">ผู้ดูแลเครื่อง</label>
+        <select name="caretaker_ids" id="add-caretakers" multiple size="4" class="mt-1 w-full rounded border px-3 py-2">{% for caretaker in caretaker_options %}<option value="{{ caretaker.id }}" data-organization-id="{{ caretaker.organization_id }}">{{ caretaker.name }} · {{ caretaker.role_th }}</option>{% endfor %}</select>
+        <p class="mt-1 text-xs text-gray-400">เลือกได้มากกว่า 1 คน โดยกด Ctrl ค้างไว้ขณะเลือก</p>
+      </div>
+      <div class="md:col-span-2">
         <label class="block text-xs font-bold uppercase text-gray-500">ชื่อสถานที่</label>
         <input type="text" name="location" maxlength="255" placeholder="เช่น อาคาร A ชั้น 1" class="mt-1 h-11 w-full rounded border px-3"/>
         <p class="mt-1 text-xs text-gray-400">หากเว้นว่าง ระบบจะแสดงว่า “ยังไม่ได้ระบุชื่อสถานที่”</p>
@@ -141,12 +146,7 @@
         <div id="add-machine-map" class="h-64 w-full overflow-hidden rounded-xl border border-gray-200 bg-gray-100"></div>
         <p id="add-map-status" class="text-xs text-gray-500">เลือกตำแหน่งบนแผนที่ หรือกดปุ่มใช้ตำแหน่งปัจจุบัน</p>
       </div>
-      <div>
-        <label class="block text-xs font-bold uppercase text-gray-500">ผู้ดูแลเครื่อง</label>
-        <select name="caretaker_ids" id="add-caretakers" multiple size="4" class="mt-1 w-full rounded border px-3 py-2">{% for caretaker in caretaker_options %}<option value="{{ caretaker.id }}" data-organization-id="{{ caretaker.organization_id }}">{{ caretaker.name }} · {{ caretaker.role_th }}</option>{% endfor %}</select>
-        <p class="mt-1 text-xs text-gray-400">เลือกได้มากกว่า 1 คน โดยกด Ctrl ค้างไว้ขณะเลือก</p>
-      </div>
-      <div>
+      <div class="md:col-span-2">
         <button type="button" onclick="showConfirm('ยืนยันการเพิ่มเครื่อง','บันทึกเครื่องและเชื่อมต่อ Serial Number นี้หรือไม่?','form-add-machine')" class="mt-1 h-11 w-full rounded bg-green-600 px-4 text-white hover:bg-green-700 disabled:cursor-not-allowed disabled:opacity-50" {% if is_system_admin and not available_devices %}disabled{% endif %}>บันทึก</button>
       </div>
     </form>
