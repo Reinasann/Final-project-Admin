@@ -73,7 +73,7 @@ Adafruit_PWMServoDriver pwm = Adafruit_PWMServoDriver(0x40);
 // Unknown < 1000
 // Plastic 1000-2999
 // Glass >= 3000
-#define PIEZO_VALID_MIN 1000
+#define PIEZO_VALID_MIN 520
 #define PLASTIC_MAX 2999
 #define GLASS_MIN   3000
 
@@ -103,16 +103,18 @@ float calibrationValue = 21.07;
 // =====================================================
 // WEIGHT CLASSIFICATION
 // =====================================================
-#define LIGHT_WEIGHT_MAX 60.0f    // ปรับลดจาก 100.0f เป็น 60.0f (ครอบคลุมขวด PET ถึงขนาด 2 ลิตร)
-#define HEAVY_WEIGHT_MIN 120.0f   // ปรับลดจาก 200.0f เป็น 120.0f (รองรับขวดแก้วขนาดเล็ก 200-330ml ได้ทันที)
+#define PLASTIC_WEIGHT_MIN 5.0f
+#define PLASTIC_WEIGHT_MAX 60.0f
+
+#define GLASS_WEIGHT_MIN 120.0f
 #define GLASS_WEIGHT_MAX 450.0f
-#define MIN_VALID_OBJECT_WEIGHT 10.0f
-#define MAX_ACCEPTED_OBJECT_WEIGHT 500.0f
+
+#define METAL_WEIGHT_MIN 0.0f
+#define METAL_WEIGHT_MAX 20.0f
 
 // น้ำหนักในช่วงที่ชัดเจนต้องมีอิทธิพลมากกว่าผล Piezo ทั้ง 3 ครั้ง
-// 10-60 g    = สนับสนุนพลาสติกอย่างเด็ดขาด
-// 61-119 g   = ใช้ผล Piezo เป็นหลัก เพราะเป็นช่วงก้ำกึ่ง (เช่น กระบอกน้ำพลาสติกแบบหนา หรือแก้วขนาดจิ๋ว)
-// 120-500 g  = สนับสนุนแก้วอย่างเด็ดขาด
+// พลาสติกและแก้วต้องมีน้ำหนักอยู่ในช่วงของชนิดนั้นก่อนจึงจะถูกคัดแยก
+// Metal Sensor ยังคงมีสิทธิ์สูงสุดตามเงื่อนไขเดิม แม้น้ำหนักอยู่นอกช่วงโลหะ
 #define WEIGHT_DECISIVE_SCORE (PIEZO_TEST_COUNT + 2)
 
 // =====================================================
@@ -1436,48 +1438,38 @@ void readObjectWeight(
 
     Serial.println(" g");
 
+    data.weight =
+      objectWeight;
+
+    data.weightValid =
+      true;
+
+    // Flags นี้ใช้กับการจำแนกพลาสติก/แก้วเท่านั้น
+    // ช่วงว่างระหว่าง PLASTIC_WEIGHT_MAX และ GLASS_WEIGHT_MIN
+    // จะถูกตัดสินเป็น UNKNOWN ภายใน classifyObject()
     if (
-      objectWeight >
-      MAX_ACCEPTED_OBJECT_WEIGHT
+      objectWeight <
+      PLASTIC_WEIGHT_MIN
     ) {
-
-      data.weight =
-        objectWeight;
-
-      data.weightValid =
-        true;
-
-      data.weightOverLimit =
-        true;
-
-      Serial.println(
-        "Object is too heavy / rejected"
-      );
-
-    } else if (
-      objectWeight >=
-      MIN_VALID_OBJECT_WEIGHT
-    ) {
-
-      data.weight =
-        objectWeight;
-
-      data.weightValid =
-        true;
-
-    } else {
-
-      data.weight =
-        0;
-
-      data.weightValid =
-        false;
 
       data.weightUnderLimit =
         true;
 
       Serial.println(
-        "Weight below minimum / ignored for non-metal classification"
+        "Weight below every non-metal range"
+      );
+    }
+
+    if (
+      objectWeight >
+      GLASS_WEIGHT_MAX
+    ) {
+
+      data.weightOverLimit =
+        true;
+
+      Serial.println(
+        "Weight above every non-metal range"
       );
     }
 
@@ -1712,59 +1704,84 @@ ObjectType classifyObject(
   SensorData &data
 ) {
 
-  // น้ำหนักเกินจะไม่เลือกช่องคัดแยก รวมถึงกรณีที่ตรวจพบโลหะ
-  if (
-    data.weightOverLimit
-  ) {
-
-    Serial.println();
-    Serial.println("================================");
-    Serial.println("WEIGHT OVER LIMIT");
-    Serial.print("Maximum accepted weight = ");
-    Serial.print(MAX_ACCEPTED_OBJECT_WEIGHT, 1);
-    Serial.println(" g");
-
-    return TYPE_UNKNOWN;
-  }
-
-  // Metal Sensor มีลำดับสูงกว่าเกณฑ์น้ำหนักขั้นต่ำ
-  // โลหะที่เบากว่า 10 กรัมหรือชั่งน้ำหนักไม่สำเร็จยังคงเป็นโลหะ
+  // Metal Sensor มีลำดับสูงสุดตามเงื่อนไขเดิม
+  // ช่วงน้ำหนักโลหะใช้ตรวจสอบและแสดง Log แต่ไม่ยกเลิกผล Metal Sensor
   if (
     data.metalDetected
   ) {
 
+    Serial.println();
+    Serial.println("================================");
+    Serial.println("METAL WEIGHT CHECK");
+
+    if (
+      data.weightValid
+    ) {
+
+      Serial.print("Metal range = ");
+      Serial.print(METAL_WEIGHT_MIN, 1);
+      Serial.print("-");
+      Serial.print(METAL_WEIGHT_MAX, 1);
+      Serial.println(" g");
+
+      if (
+        data.weight < METAL_WEIGHT_MIN ||
+        data.weight > METAL_WEIGHT_MAX
+      ) {
+
+        Serial.println("Weight outside metal range -> METAL SENSOR OVERRIDE");
+      } else {
+
+        Serial.println("Weight inside metal range");
+      }
+
+    } else {
+
+      Serial.println("Weight unavailable -> METAL SENSOR OVERRIDE");
+    }
+
     return TYPE_METAL;
   }
 
-  // วัตถุที่ไม่ใช่โลหะและหนักเกินช่วงของแก้วจะไม่เข้าช่องคัดแยก
-  // แต่ยังไม่ถือว่าเกินขีดจำกัดรวมจนกว่าจะเกิน MAX_ACCEPTED_OBJECT_WEIGHT
+  // พลาสติก/แก้วต้องอ่านน้ำหนักได้ จึงจะตรวจช่วงของแต่ละชนิดได้
   if (
-    data.weightValid &&
-    data.weight >
-    GLASS_WEIGHT_MAX
+    !data.weightValid
   ) {
 
     Serial.println();
     Serial.println("================================");
-    Serial.println("GLASS WEIGHT OVER LIMIT");
-    Serial.print("Maximum glass weight = ");
-    Serial.print(GLASS_WEIGHT_MAX, 1);
-    Serial.println(" g");
+    Serial.println("WEIGHT INVALID");
+    Serial.println("NON-METAL RESULT = UNKNOWN");
 
     return TYPE_UNKNOWN;
   }
 
-  // น้ำหนักต่ำกว่าขั้นต่ำจะไม่เลือกช่องคัดแยกสำหรับพลาสติก/แก้ว
-  // แต่ยังเปิดประตูหลักเพื่อปล่อยวัตถุออก
+  bool plasticWeightMatch =
+    data.weight >= PLASTIC_WEIGHT_MIN &&
+    data.weight <= PLASTIC_WEIGHT_MAX;
+
+  bool glassWeightMatch =
+    data.weight >= GLASS_WEIGHT_MIN &&
+    data.weight <= GLASS_WEIGHT_MAX;
+
+  // น้ำหนักที่ไม่ตรงกับช่วงของพลาสติกหรือแก้วจะไม่เปิด Sort Gate
   if (
-    data.weightUnderLimit
+    !plasticWeightMatch &&
+    !glassWeightMatch
   ) {
 
     Serial.println();
     Serial.println("================================");
-    Serial.println("WEIGHT UNDER LIMIT");
-    Serial.print("Minimum accepted weight = ");
-    Serial.print(MIN_VALID_OBJECT_WEIGHT, 1);
+    Serial.println("WEIGHT OUTSIDE MATERIAL RANGES");
+    Serial.print("Plastic range = ");
+    Serial.print(PLASTIC_WEIGHT_MIN, 1);
+    Serial.print("-");
+    Serial.print(PLASTIC_WEIGHT_MAX, 1);
+    Serial.println(" g");
+    Serial.print("Glass range   = ");
+    Serial.print(GLASS_WEIGHT_MIN, 1);
+    Serial.print("-");
+    Serial.print(GLASS_WEIGHT_MAX, 1);
     Serial.println(" g");
 
     return TYPE_UNKNOWN;
@@ -1863,10 +1880,10 @@ ObjectType classifyObject(
 
     Serial.println(" g");
 
-    // Light
+    // น้ำหนักตรงกับช่วงพลาสติกเพียงชนิดเดียว
     if (
-      data.weight <=
-      LIGHT_WEIGHT_MAX
+      plasticWeightMatch &&
+      !glassWeightMatch
     ) {
 
       plasticScore +=
@@ -1877,12 +1894,10 @@ ObjectType classifyObject(
       );
     }
 
-    // Heavy
+    // น้ำหนักตรงกับช่วงแก้วเพียงชนิดเดียว
     else if (
-      data.weight >=
-      HEAVY_WEIGHT_MIN &&
-      data.weight <=
-      GLASS_WEIGHT_MAX
+      glassWeightMatch &&
+      !plasticWeightMatch
     ) {
 
       glassScore +=
@@ -1893,11 +1908,11 @@ ObjectType classifyObject(
       );
     }
 
-    // Middle
+    // รองรับกรณีผู้ใช้ตั้งช่วงน้ำหนักให้ซ้อนกันในอนาคต
     else {
 
       Serial.println(
-        "Weight Vote -> NONE"
+        "Weight Decision -> OVERLAPPING RANGES / USE PIEZO"
       );
     }
 
@@ -1937,35 +1952,10 @@ ObjectType classifyObject(
   );
 
   // ===================================================
-  // WEIGHT INVALID
-  // ===================================================
-  if (
-    !data.weightValid
-  ) {
-
-    if (
-      plasticScore == 3 &&
-      glassScore == 0
-    ) {
-
-      return TYPE_PLASTIC;
-    }
-
-    if (
-      glassScore == 3 &&
-      plasticScore == 0
-    ) {
-
-      return TYPE_GLASS;
-    }
-
-    return TYPE_UNKNOWN;
-  }
-
-  // ===================================================
   // WEIGHT VALID
   // ===================================================
   if (
+    plasticWeightMatch &&
     plasticScore >= 2 &&
     (
       plasticScore -
@@ -1977,6 +1967,7 @@ ObjectType classifyObject(
   }
 
   if (
+    glassWeightMatch &&
     glassScore >= 2 &&
     (
       glassScore -
@@ -3093,19 +3084,34 @@ void setup() {
 
   Serial.println();
 
-  Serial.println("Unknown Piezo < 1000");
+  Serial.print("Unknown Piezo < ");
+  Serial.println(PIEZO_VALID_MIN);
 
-  Serial.println("Plastic Piezo = 1000-2999");
+  Serial.print("Plastic Piezo = ");
+  Serial.print(PIEZO_VALID_MIN);
+  Serial.print("-");
+  Serial.println(PLASTIC_MAX);
 
-  Serial.println(
-    "Glass Piezo >= 3000"
-  );
+  Serial.print("Glass Piezo >= ");
+  Serial.println(GLASS_MIN);
 
-  Serial.println("Plastic Weight = 10-60 g");
+  Serial.print("Plastic Weight = ");
+  Serial.print(PLASTIC_WEIGHT_MIN, 1);
+  Serial.print("-");
+  Serial.print(PLASTIC_WEIGHT_MAX, 1);
+  Serial.println(" g");
 
-  Serial.println("Glass Weight = 120-500 g");
+  Serial.print("Glass Weight = ");
+  Serial.print(GLASS_WEIGHT_MIN, 1);
+  Serial.print("-");
+  Serial.print(GLASS_WEIGHT_MAX, 1);
+  Serial.println(" g");
 
-  Serial.println("Maximum Accepted Weight = 700 g");
+  Serial.print("Metal Weight = ");
+  Serial.print(METAL_WEIGHT_MIN, 1);
+  Serial.print("-");
+  Serial.print(METAL_WEIGHT_MAX, 1);
+  Serial.println(" g (Metal Sensor override)");
 
   Serial.println();
 
@@ -3462,8 +3468,11 @@ void loop() {
   // ไม่เปิด Sort Gate แต่ยังทำงานต่อเพื่อเปิดประตูหลัก
   // ===================================================
   if (
-    (data.weightUnderLimit && !data.metalDetected) ||
-    data.weightOverLimit
+    !data.metalDetected &&
+    (
+      data.weightUnderLimit ||
+      data.weightOverLimit
+    )
   ) {
 
     Serial.println();
