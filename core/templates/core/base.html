@@ -181,7 +181,9 @@ let adminLiveState=null;
 let adminBackgroundRefreshInFlight=false;
 let adminLastMachineRefreshAt=Date.now();
 const adminLoadedScripts=new Set(Array.from(document.scripts).filter(script=>script.src).map(script=>script.src));
-const adminLoadedStyles=new Set(Array.from(document.querySelectorAll('link[rel="stylesheet"]')).map(link=>link.href));
+// Keep page styles alive when AJAX navigation replaces the main content.
+document.querySelectorAll('#admin-main-content link[rel="stylesheet"]').forEach(link=>document.head.appendChild(link));
+const adminLoadedStyles=new Map();
 
 function showAdminAjaxProgress(){
   const progress=document.getElementById('admin-ajax-progress');
@@ -251,15 +253,29 @@ function updateIssueNavigationBadges(counts={}){
 function activeAdminTab(){
   return document.querySelector('[data-admin-nav-link][aria-current="page"]')?.dataset.adminTab||'';
 }
-function adminLoadStylesheet(href){
+function adminLoadStylesheet(href,sourceLink){
   const absolute=new URL(href,window.location.href).href;
-  if(adminLoadedStyles.has(absolute))return Promise.resolve();
-  adminLoadedStyles.add(absolute);
-  return new Promise((resolve,reject)=>{
-    const link=document.createElement('link');link.rel='stylesheet';link.href=absolute;
-    link.onload=resolve;link.onerror=()=>reject(new Error('โหลดรูปแบบหน้าไม่สำเร็จ'));
-    document.head.appendChild(link);
+  const existing=Array.from(document.head.querySelectorAll('link[rel="stylesheet"]')).find(link=>link.href===absolute);
+  if(existing?.sheet)return Promise.resolve();
+  if(adminLoadedStyles.has(absolute))return adminLoadedStyles.get(absolute);
+  const pending=new Promise((resolve,reject)=>{
+    const link=existing||document.createElement('link');
+    link.rel='stylesheet';link.href=absolute;
+    if(!existing&&sourceLink){
+      ['integrity','crossorigin','referrerpolicy','media'].forEach(name=>{
+        if(sourceLink.hasAttribute(name))link.setAttribute(name,sourceLink.getAttribute(name));
+      });
+    }
+    link.addEventListener('load',()=>{adminLoadedStyles.delete(absolute);resolve();},{once:true});
+    link.addEventListener('error',()=>{
+      adminLoadedStyles.delete(absolute);
+      link.remove();
+      reject(new Error('โหลดรูปแบบหน้าไม่สำเร็จ กรุณาลองอีกครั้ง'));
+    },{once:true});
+    if(!existing)document.head.appendChild(link);
   });
+  adminLoadedStyles.set(absolute,pending);
+  return pending;
 }
 function adminLoadExternalScript(src){
   const absolute=new URL(src,window.location.href).href;
@@ -290,7 +306,7 @@ async function adminApplyAjaxResponse(html,responseUrl,historyMode,{preserveScro
     return !type||type==='text/javascript'||type==='application/javascript'||type==='module';
   });
   executableScripts.forEach(script=>script.remove());
-  await Promise.all(stylesheetLinks.map(link=>adminLoadStylesheet(link.href)));
+  await Promise.all(stylesheetLinks.map(link=>adminLoadStylesheet(link.href,link)));
   window.__adminStartPageRuntime();
   const main=document.getElementById('admin-main-content');
   const previousScrollTop=main.scrollTop;

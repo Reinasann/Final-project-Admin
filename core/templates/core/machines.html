@@ -237,6 +237,25 @@ let addMachineMap = null;
 let addMachineMarker = null;
 let isEditMode = false;
 
+function observeMachineMapSize(map) {
+  const container = map.getContainer();
+  let previousWidth = 0;
+  let previousHeight = 0;
+  const observer = window.ResizeObserver ? new ResizeObserver(() => {
+    const width = container.clientWidth;
+    const height = container.clientHeight;
+    if (!width || !height || (width === previousWidth && height === previousHeight)) return;
+    previousWidth = width;
+    previousHeight = height;
+    map.invalidateSize({animate: false, debounceMoveend: true});
+  }) : null;
+  observer?.observe(container);
+  window.__adminPageAbortController?.signal.addEventListener('abort', () => {
+    observer?.disconnect();
+    map.remove();
+  }, {once: true});
+}
+
 function mountAdminModal(id){
   const modal=document.getElementById(id);
   if(!modal||modal.parentElement===document.body)return modal;
@@ -247,10 +266,10 @@ function mountAdminModal(id){
 function openAdminModal(id){
   mountAdminModal(id)?.classList.remove('hidden');
   if(id==='add-form'){
-    setTimeout(()=>{
+    window.requestAnimationFrame(()=>{
       ensureAddMachineMap()?.invalidateSize();
       syncAddMapFromInputs(false);
-    },0);
+    });
   }
 }
 function closeAdminModal(id){document.getElementById(id)?.classList.add('hidden');}
@@ -296,6 +315,7 @@ function overviewStatusLabel(status) {
 function ensureOverviewMap() {
   if (overviewMap || !window.L) return overviewMap;
   overviewMap = L.map('machine-overview-map', {scrollWheelZoom: false}).setView(defaultMapCenter, 6);
+  observeMachineMapSize(overviewMap);
   L.tileLayer(baseMapTileUrl, baseMapTileOptions).addTo(overviewMap);
   overviewLayer = L.layerGroup().addTo(overviewMap);
   return overviewMap;
@@ -457,11 +477,11 @@ function openOverviewMapModal() {
   const modal = document.getElementById('overview-map-modal');
   modal.classList.remove('hidden');
   document.body.classList.add('overflow-hidden');
-  window.setTimeout(() => {
+  window.requestAnimationFrame(() => {
     ensureOverviewMap()?.invalidateSize();
     renderOverviewMap();
     document.getElementById('overview-map-close').focus();
-  }, 0);
+  });
 }
 
 function closeOverviewMapModal() {
@@ -485,6 +505,7 @@ function coordinateNumber(value) {
 function ensureAddMachineMap() {
   if (addMachineMap || !window.L) return addMachineMap;
   addMachineMap = L.map('add-machine-map').setView(defaultMapCenter, 6);
+  observeMachineMapSize(addMachineMap);
   L.tileLayer(baseMapTileUrl, baseMapTileOptions).addTo(addMachineMap);
   addMachineMap.on('click', event => {
     setAddCoordinateInputs(event.latlng.lat, event.latlng.lng, true);
@@ -570,6 +591,7 @@ function useCurrentLocationForAdd() {
 function ensureMachineMap() {
   if (machineMap || !window.L) return machineMap;
   machineMap = L.map('machine-map').setView(defaultMapCenter, 6);
+  observeMachineMapSize(machineMap);
   L.tileLayer(baseMapTileUrl, baseMapTileOptions).addTo(machineMap);
   machineMap.on('click', event => {
     if (!isEditMode) return;
@@ -646,10 +668,10 @@ function openDetail(id, code, name, location, status, installDate, lastUpdate, l
   if(suspensionButton)suspensionButton.textContent=status==='Suspended'?'เปิดใช้งานเครื่อง':'ระงับการใช้งาน';
   switchToView();
   document.getElementById('detail-modal').classList.remove('hidden');
-  setTimeout(() => {
+  window.requestAnimationFrame(() => {
     ensureMachineMap()?.invalidateSize();
     showSavedPosition();
-  }, 0);
+  });
 }
 
 function closeDetail() {
@@ -689,7 +711,7 @@ function switchToEdit() {
   }
   showMapPosition(coordinateNumber(currentMachine.latitude), coordinateNumber(currentMachine.longitude));
   setMapStatus('เลือกตำแหน่งบนแผนที่ หรือกดปุ่มใช้ตำแหน่งปัจจุบัน', false);
-  setTimeout(() => ensureMachineMap()?.invalidateSize(), 0);
+  window.requestAnimationFrame(() => ensureMachineMap()?.invalidateSize());
 }
 
 function switchToView() {
